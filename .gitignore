@@ -1,0 +1,18 @@
+# ความลับ / ค่าตั้งเฉพาะเครื่อง (อย่า commit)
+config.php
+data/telegram.json
+data/rate/
+
+# ไฟล์ที่ผู้ใช้อัปโหลด (เก็บแค่โครงโฟลเดอร์)
+uploads/slips/*
+!uploads/slips/.htaccess
+!uploads/slips/index.html
+
+# ค่าเครื่องมือ/IDE และไฟล์เก่า
+.claude/
+database/_legacy/
+
+# เบ็ดเตล็ด
+*.log
+Thumbs.db
+.DS_Store
