@@ -16,3 +16,4 @@ database/_legacy/
 *.log
 Thumbs.db
 .DS_Store
+.phpunit.cache/

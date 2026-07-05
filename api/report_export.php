@@ -16,6 +16,7 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) || !preg_match('/^\d{4}-\d{2}-\
 if ($start > $end) { [$start, $end] = [$end, $start]; }
 
 $pdo = require dirname(__DIR__) . '/app/db.php';
+$owner = ownerId();
 
 $sql = "
     SELECT b.appointment_date, b.start_time, b.end_time, b.customer_name, b.customer_phone,
@@ -25,9 +26,9 @@ $sql = "
             JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names
     FROM bookings b
     LEFT JOIN staff st ON st.id = b.staff_id
-    WHERE b.appointment_date BETWEEN ? AND ?
+    WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ?
 ";
-$params = [$start, $end];
+$params = [$owner, $start, $end];
 $staff = $_GET['staff'] ?? '';
 if ($staff === 'none') { $sql .= " AND b.staff_id IS NULL"; }
 elseif ($staff !== '' && ctype_digit((string) $staff)) { $sql .= " AND b.staff_id = ?"; $params[] = (int) $staff; }

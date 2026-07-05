@@ -26,11 +26,13 @@ mysql -u admin -p --default-character-set=utf8mb4 makeup_booking < database/migr
 mysql -u admin -p --default-character-set=utf8mb4 makeup_booking < database/migration_v3.sql
 mysql -u admin -p --default-character-set=utf8mb4 makeup_booking < database/migration_v4.sql
 mysql -u admin -p --default-character-set=utf8mb4 makeup_booking < database/migration_v5.sql
+mysql -u admin -p --default-character-set=utf8mb4 makeup_booking < database/migration_v6.sql
 ```
 - `migration_v2.sql` — ลูกค้า/ราคา/มัดจำ/ล็อกอิน
 - `migration_v3.sql` — ช่าง/พนักงาน + ผูกกับการจอง + กันคิวชนแยกตามช่าง
 - `migration_v4.sql` — ผูกบริการเสริมกับประเภทงาน (เลือกประเภทแล้วโชว์บริการตาม)
 - `migration_v5.sql` — สลิปมัดจำ (อัปโหลดรูปสลิป)
+- `migration_v6.sql` — **ระบบหลายร้าน (multi-tenant)**: สมัครสมาชิก+อนุมัติ, ข้อมูลแยกต่อร้าน, ลิงก์จองต่อร้าน (ยกข้อมูลเดิมให้ผู้ใช้ id ต่ำสุด = ซูเปอร์แอดมิน)
 
 ### 2) ตั้งค่าเชื่อมต่อ DB
 แก้ `config.php` ให้ตรงกับ MySQL ของคุณ (host, name, user, password)
@@ -44,8 +46,10 @@ php tools/create_admin.php <username> <password>
 ### 4) เข้าใช้งาน
 | หน้า | URL | ต้อง login |
 |------|-----|:--:|
-| ลูกค้าจองคิวเอง (สาธารณะ) | `/booking/book.php` | ไม่ |
+| ลูกค้าจองคิวเอง (ต่อร้าน) | `/booking/book.php?shop=<ชื่อร้าน>` | ไม่ |
+| สมัครเปิดร้านใหม่ | `/booking/register.php` | ไม่ |
 | เข้าสู่ระบบหลังบ้าน | `/booking/login.php` | – |
+| อนุมัติ/จัดการผู้ใช้ | `/booking/admin/users.php` | ✓ (ซูเปอร์แอดมิน) |
 | Dashboard / ปฏิทินคิวงาน | `/booking/` | ✓ |
 | รายงานสรุป (ยอด/กราฟ) | `/booking/report.php` | ✓ |
 | ฟอร์มเพิ่ม/แก้ไขคิว | `/booking/form.php` | ✓ |
@@ -62,6 +66,13 @@ php tools/create_admin.php <username> <password>
 | `staff` | ช่าง/พนักงาน (ผูกกับการจอง, ใช้กันคิวชนแยกตามช่าง) |
 | `app_users` | ผู้ใช้หลังบ้าน (admin) — รหัสเก็บแบบ hash |
 | `booking_category_pivot` / `booking_service_pivot` | ความสัมพันธ์หลายต่อหลาย |
+
+## ระบบหลายร้าน (multi-tenant)
+- **สมัครเปิดร้านเอง** ที่ `register.php` → บัญชีสถานะ "รออนุมัติ" จนกว่า**ซูเปอร์แอดมิน**จะอนุมัติที่ `admin/users.php`
+- ข้อมูลทุกอย่าง (ประเภทงาน/บริการ/ช่าง/คิว/ลูกค้า) **แยกต่อร้าน** — แต่ละคนเห็นเฉพาะของตัวเอง
+- ลูกค้าจองผ่าน **ลิงก์ต่อร้าน** `book.php?shop=<slug>` (แต่ละร้านมี slug ของตัวเอง)
+- ผู้ใช้ id ต่ำสุด = ซูเปอร์แอดมิน (role=admin) เป็นผู้อนุมัติ + เจ้าของข้อมูลตัวอย่างเดิม
+- **ซูเปอร์แอดมินจัดการได้ทุกร้าน**: ที่ `admin/users.php` กด "จัดการร้านนี้" → สลับเข้าไปจัดการข้อมูลของร้านนั้นได้เต็มรูปแบบ (คิว/บริการ/ช่าง/รายงาน) มี banner บอกสถานะ + ปุ่มออกจากโหมด (ผู้ใช้ทั่วไปทำไม่ได้ — ป้องกันด้วย role check)
 
 ## ความสามารถหลัก
 - **ลูกค้าจองเอง** (`book.php`): เลือกบริการ → ดูช่วงเวลาที่ว่าง → ส่งคำขอจอง (รอร้านยืนยัน)

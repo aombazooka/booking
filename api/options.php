@@ -5,6 +5,9 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 
+require dirname(__DIR__) . '/app/auth.php';
+require dirname(__DIR__) . '/app/booking_helpers.php';
+
 try {
     $pdo = require dirname(__DIR__) . '/app/db.php';
 } catch (Throwable $e) {
@@ -13,21 +16,38 @@ try {
     exit;
 }
 
-$categories = $pdo->query("
-    SELECT id, name, color_hex, price, deposit_default, duration_min, count_label
-    FROM booking_categories WHERE is_active = 1 ORDER BY sort_order, id
-")->fetchAll(PDO::FETCH_ASSOC);
+// เจ้าของข้อมูล: admin = ตัวเอง, สาธารณะ = ร้านจาก ?shop=slug
+if (isLoggedIn()) {
+    $owner = ownerId();
+} else {
+    $owner = resolveShopOwner($pdo, (string) ($_GET['shop'] ?? ''));
+    if (!$owner) {
+        echo json_encode(['categories' => [], 'services' => [], 'staff' => [], 'error' => 'ไม่พบร้าน']);
+        exit;
+    }
+}
 
-$services = $pdo->query("
+$cs = $pdo->prepare("
+    SELECT id, name, color_hex, price, deposit_default, duration_min, count_label
+    FROM booking_categories WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id
+");
+$cs->execute([$owner]);
+$categories = $cs->fetchAll(PDO::FETCH_ASSOC);
+
+$ss = $pdo->prepare("
     SELECT s.id, s.name, s.price,
            (SELECT GROUP_CONCAT(l.category_id) FROM service_category_link l WHERE l.service_id = s.id) AS category_ids
-    FROM booking_services s WHERE s.is_active = 1 ORDER BY s.sort_order, s.id
-")->fetchAll(PDO::FETCH_ASSOC);
+    FROM booking_services s WHERE s.user_id = ? AND s.is_active = 1 ORDER BY s.sort_order, s.id
+");
+$ss->execute([$owner]);
+$services = $ss->fetchAll(PDO::FETCH_ASSOC);
 
-$staff = $pdo->query("
+$sf = $pdo->prepare("
     SELECT id, name, color_hex
-    FROM staff WHERE is_active = 1 ORDER BY sort_order, id
-")->fetchAll(PDO::FETCH_ASSOC);
+    FROM staff WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id
+");
+$sf->execute([$owner]);
+$staff = $sf->fetchAll(PDO::FETCH_ASSOC);
 foreach ($staff as &$st) { $st['id'] = (int) $st['id']; }
 unset($st);
 

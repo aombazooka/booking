@@ -21,7 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
     try {
         $pdo = require __DIR__ . '/app/db.php';
-        if (attemptLogin($pdo, $username, $password)) {
+        $res = attemptLogin($pdo, $username, $password);
+        if ($res === 'ok') {
             // กัน open-redirect: ยอมเฉพาะ path ภายในเว็บนี้
             $dest = $base . '/';
             if (is_string($next) && $next !== '' && str_starts_with($next, '/') && !str_starts_with($next, '//')) {
@@ -29,8 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             header('Location: ' . $dest);
             exit;
+        } elseif ($res === 'pending') {
+            $error = 'บัญชีของคุณกำลังรอผู้ดูแลระบบอนุมัติ';
+        } elseif ($res === 'suspended') {
+            $error = 'บัญชีของคุณถูกระงับการใช้งาน';
+        } else {
+            $error = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
         }
-        $error = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
     } catch (Throwable $e) {
         $error = 'เชื่อมต่อฐานข้อมูลไม่ได้ โปรดตรวจสอบ config.php';
     }
@@ -59,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="mx-auto login-card p-4 p-md-5 rise">
       <div class="text-center mb-4">
         <span class="logo-badge mb-2"><i class="bi bi-flower1"></i></span>
-        <div class="eyebrow mt-3">Beauty Booking</div>
+        <div class="eyebrow mt-3">แอปจองคิว</div>
         <h1 class="brand mt-1 mb-0" style="font-size: 1.6rem; font-weight: 600;">เข้าสู่ระบบ</h1>
         <small class="text-muted">สำหรับเจ้าของร้าน</small>
       </div>
@@ -84,8 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </form>
 
       <div class="text-center mt-4">
-        <a href="<?= htmlspecialchars($base) ?>/book.php" class="text-decoration-none small text-muted">
-          <i class="bi bi-box-arrow-up-right"></i> ลูกค้าจองคิว (หน้าสาธารณะ)
+        <a href="<?= htmlspecialchars($base) ?>/register.php" class="text-decoration-none fw-semibold" style="color: var(--rose-deep);">
+          <i class="bi bi-person-plus"></i> สมัครเปิดร้านใหม่
         </a>
       </div>
     </div>

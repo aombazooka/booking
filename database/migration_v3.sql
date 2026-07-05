@@ -39,7 +39,7 @@ PREPARE _fk_stmt FROM @fk_sql;
 EXECUTE _fk_stmt;
 DEALLOCATE PREPARE _fk_stmt;
 
--- ช่างเริ่มต้น 1 คน (ชื่อร้าน) — แก้ไข/เพิ่มได้ผ่านหน้า admin
+-- ช่างเริ่มต้น 1 คน — แก้ไข/เพิ่มได้ผ่านหน้า admin
 INSERT INTO staff (name, color_hex, sort_order)
-SELECT 'ป๊อปอาย', '#ec4899', 1
+SELECT 'ช่างหลัก', '#ec4899', 1
 WHERE NOT EXISTS (SELECT 1 FROM staff);

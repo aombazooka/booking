@@ -70,23 +70,88 @@ function currentUserId(): int
     return (int) ($_SESSION['admin_user_id'] ?? 0);
 }
 
+function currentRole(): string
+{
+    startSession();
+    return (string) ($_SESSION['admin_role'] ?? 'owner');
+}
+
+function isSuperAdmin(): bool
+{
+    return currentRole() === 'admin';
+}
+
+/**
+ * id ของร้านที่กำลัง "จัดการข้อมูล" อยู่ (ใช้ scope ทุก query)
+ * - ผู้ใช้ทั่วไป = ตัวเองเสมอ
+ * - ซูเปอร์แอดมิน = ร้านที่เลือกสลับเข้าไปจัดการ (ถ้ามี) ไม่งั้น = ตัวเอง
+ */
+function ownerId(): int
+{
+    startSession();
+    if (isSuperAdmin() && !empty($_SESSION['acting_shop_id'])) {
+        return (int) $_SESSION['acting_shop_id'];
+    }
+    return currentUserId();
+}
+
+/** id ร้านที่ซูเปอร์แอดมินกำลังสลับเข้าไปจัดการ (0 = จัดการร้านตัวเอง) */
+function actingShopId(): int
+{
+    startSession();
+    return (isSuperAdmin() && !empty($_SESSION['acting_shop_id'])) ? (int) $_SESSION['acting_shop_id'] : 0;
+}
+
+/** ซูเปอร์แอดมินสลับเข้าไปจัดการร้านอื่น (id=0 = กลับมาร้านตัวเอง) */
+function setActingShop(int $shopId): void
+{
+    startSession();
+    if (!isSuperAdmin()) { return; }
+    if ($shopId <= 0 || $shopId === currentUserId()) {
+        unset($_SESSION['acting_shop_id']);
+    } else {
+        $_SESSION['acting_shop_id'] = $shopId;
+    }
+}
+
+/** เฉพาะผู้ดูแลระบบ (role=admin) — สำหรับหน้าอนุมัติผู้ใช้ */
+function requireSuperAdmin(): void
+{
+    requireLogin();
+    if (!isSuperAdmin()) {
+        http_response_code(403);
+        exit('เฉพาะผู้ดูแลระบบเท่านั้น');
+    }
+}
+
 /**
  * ตรวจสอบ username/password กับตาราง app_users
  * คืน true ถ้าสำเร็จ (และตั้ง session)
  */
-function attemptLogin(PDO $pdo, string $username, string $password): bool
+/**
+ * ตรวจ username/password + สถานะบัญชี
+ * คืน: 'ok' (ตั้ง session แล้ว) | 'bad' (ผิด) | 'pending' (รออนุมัติ) | 'suspended' (ถูกระงับ)
+ */
+function attemptLogin(PDO $pdo, string $username, string $password): string
 {
-    $stmt = $pdo->prepare("SELECT id, username, password_hash FROM app_users WHERE username = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, username, password_hash, role, status FROM app_users WHERE username = ? LIMIT 1");
     $stmt->execute([$username]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$user || !password_verify($password, $user['password_hash'])) {
-        return false;
+        return 'bad';
+    }
+    if ($user['status'] === 'pending') {
+        return 'pending';
+    }
+    if ($user['status'] === 'suspended') {
+        return 'suspended';
     }
     startSession();
     session_regenerate_id(true);
     $_SESSION['admin_user_id'] = (int) $user['id'];
     $_SESSION['admin_username'] = $user['username'];
-    return true;
+    $_SESSION['admin_role'] = $user['role'];
+    return 'ok';
 }
 
 function logout(): void

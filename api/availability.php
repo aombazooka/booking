@@ -10,12 +10,26 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 
+require dirname(__DIR__) . '/app/auth.php';
+require dirname(__DIR__) . '/app/booking_helpers.php';
+
 try {
     $pdo = require dirname(__DIR__) . '/app/db.php';
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['error' => 'เชื่อมต่อฐานข้อมูลไม่ได้']);
     exit;
+}
+
+// เจ้าของ: admin = ตัวเอง, สาธารณะ = ร้านจาก ?shop=slug
+if (isLoggedIn()) {
+    $owner = ownerId();
+} else {
+    $owner = resolveShopOwner($pdo, (string) ($_GET['shop'] ?? ''));
+    if (!$owner) {
+        echo json_encode(['date' => $_GET['date'] ?? '', 'busy' => []]);
+        exit;
+    }
 }
 
 $date = $_GET['date'] ?? '';
@@ -25,8 +39,8 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     exit;
 }
 
-$sql = "SELECT start_time, end_time FROM bookings WHERE appointment_date = ? AND status <> 'cancelled'";
-$params = [$date];
+$sql = "SELECT start_time, end_time FROM bookings WHERE user_id = ? AND appointment_date = ? AND status <> 'cancelled'";
+$params = [$owner, $date];
 $staffParam = $_GET['staff'] ?? '';
 if ($staffParam === 'none') {
     $sql .= " AND staff_id IS NULL";

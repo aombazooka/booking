@@ -8,6 +8,7 @@ USE makeup_booking;
 -- ประเภทงาน (ติ๊กได้หลายข้อ) — รองรับราคา/มัดจำ/ระยะเวลา/ป้ายจำนวน/เปิดปิด
 CREATE TABLE booking_categories (
     id              TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id         INT UNSIGNED NULL COMMENT 'เจ้าของ (ร้าน)',
     name            VARCHAR(100) NOT NULL,
     color_hex       VARCHAR(7) NOT NULL DEFAULT '#6b7280',
     price           DECIMAL(10,2) NULL,
@@ -22,6 +23,7 @@ CREATE TABLE booking_categories (
 -- บริการที่เลือก (ติ๊กได้หลายข้อ)
 CREATE TABLE booking_services (
     id         TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id    INT UNSIGNED NULL COMMENT 'เจ้าของ (ร้าน)',
     name       VARCHAR(100) NOT NULL,
     price      DECIMAL(10,2) NULL,
     is_active  TINYINT(1) NOT NULL DEFAULT 1,
@@ -32,6 +34,7 @@ CREATE TABLE booking_services (
 -- ช่าง/พนักงาน
 CREATE TABLE staff (
     id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id    INT UNSIGNED NULL COMMENT 'เจ้าของ (ร้าน)',
     name       VARCHAR(150) NOT NULL,
     phone      VARCHAR(50)  NULL,
     color_hex  VARCHAR(7)   NOT NULL DEFAULT '#a78bfa',
@@ -44,6 +47,7 @@ CREATE TABLE staff (
 -- ฐานข้อมูลลูกค้า
 CREATE TABLE customers (
     id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id    INT UNSIGNED NULL COMMENT 'เจ้าของ (ร้าน)',
     name       VARCHAR(200) NOT NULL,
     phone      VARCHAR(50)  NOT NULL,
     note       TEXT         NULL,
@@ -56,15 +60,21 @@ CREATE TABLE customers (
 CREATE TABLE app_users (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
     username      VARCHAR(100) NOT NULL,
+    role          ENUM('admin','owner') NOT NULL DEFAULT 'owner' COMMENT 'admin = ซูเปอร์แอดมิน อนุมัติผู้ใช้ได้',
+    status        ENUM('pending','active','suspended') NOT NULL DEFAULT 'active',
+    shop_name     VARCHAR(150) NULL,
+    shop_slug     VARCHAR(100) NULL COMMENT 'ใช้ในลิงก์จองสาธารณะ ?shop=',
     password_hash VARCHAR(255) NOT NULL,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uniq_username (username)
+    UNIQUE KEY uniq_username (username),
+    UNIQUE KEY uniq_shop_slug (shop_slug)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- การจองหลัก
 CREATE TABLE bookings (
     id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id           INT UNSIGNED NULL COMMENT 'เจ้าของ (ร้าน)',
     customer_id       INT UNSIGNED NULL,
     staff_id          INT UNSIGNED NULL,
     customer_name     VARCHAR(200) NOT NULL,
@@ -88,6 +98,7 @@ CREATE TABLE bookings (
     KEY idx_created (created_at),
     KEY idx_customer (customer_id),
     KEY idx_staff (staff_id),
+    KEY idx_bk_user (user_id),
     CONSTRAINT fk_booking_customer FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL ON UPDATE RESTRICT,
     CONSTRAINT fk_booking_staff FOREIGN KEY (staff_id) REFERENCES staff (id) ON DELETE SET NULL ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -125,17 +136,22 @@ CREATE TABLE booking_service_pivot (
     CONSTRAINT fk_bsp_service FOREIGN KEY (service_id) REFERENCES booking_services (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ข้อมูลเริ่มต้น: ประเภทงาน
-INSERT INTO booking_categories (id, name, color_hex, price, deposit_default, duration_min, count_label, sort_order) VALUES
-(1, 'แต่งหน้าทั่วไป', '#3b82f6', NULL, NULL, 90, 'จำนวนคน', 1),
-(2, 'แต่งหน้าเจ้าสาว', '#ec4899', NULL, NULL, 120, 'จำนวนคน', 2),
-(3, 'ถ่ายภาพ', '#10b981', NULL, NULL, 120, 'จำนวนชั่วโมง', 3);
+-- ผู้ใช้แรก = ซูเปอร์แอดมิน (เจ้าของข้อมูลตัวอย่าง)
+-- password_hash ว่างไว้ → ตั้งรหัสด้วย: php tools/create_admin.php admin <รหัส>
+INSERT INTO app_users (id, username, role, status, shop_name, shop_slug, password_hash) VALUES
+(1, 'admin', 'admin', 'active', 'ร้านตัวอย่าง', 'admin', '');
+
+-- ข้อมูลเริ่มต้น: ประเภทงาน (ของ admin id=1)
+INSERT INTO booking_categories (id, user_id, name, color_hex, price, deposit_default, duration_min, count_label, sort_order) VALUES
+(1, 1, 'แต่งหน้าทั่วไป', '#3b82f6', NULL, NULL, 90, 'จำนวนคน', 1),
+(2, 1, 'แต่งหน้าเจ้าสาว', '#ec4899', NULL, NULL, 120, 'จำนวนคน', 2),
+(3, 1, 'ถ่ายภาพ', '#10b981', NULL, NULL, 120, 'จำนวนชั่วโมง', 3);
 
 -- ข้อมูลเริ่มต้น: บริการ
-INSERT INTO booking_services (id, name, sort_order) VALUES
-(1, 'แต่งหน้า', 1),
-(2, 'ทำผม', 2);
+INSERT INTO booking_services (id, user_id, name, sort_order) VALUES
+(1, 1, 'แต่งหน้า', 1),
+(2, 1, 'ทำผม', 2);
 
 -- ข้อมูลเริ่มต้น: ช่าง
-INSERT INTO staff (id, name, color_hex, sort_order) VALUES
-(1, 'ป๊อปอาย', '#ec4899', 1);
+INSERT INTO staff (id, user_id, name, color_hex, sort_order) VALUES
+(1, 1, 'ช่างหลัก', '#ec4899', 1);

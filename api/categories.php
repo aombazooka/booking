@@ -17,6 +17,7 @@ requireLoginApi();
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method !== 'GET') requireCsrf();
+$owner = ownerId();
 
 function cat_input(): array
 {
@@ -36,11 +37,12 @@ function num_or_null($v): ?float
 }
 
 if ($method === 'GET') {
-    $rows = $pdo->query("
+    $stmt = $pdo->prepare("
         SELECT id, name, color_hex, price, deposit_default, duration_min, count_label, is_active, sort_order
-        FROM booking_categories ORDER BY sort_order, id
-    ")->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode($rows);
+        FROM booking_categories WHERE user_id = ? ORDER BY sort_order, id
+    ");
+    $stmt->execute([$owner]);
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
 
@@ -53,10 +55,11 @@ if ($method === 'POST') {
         exit;
     }
     $stmt = $pdo->prepare("
-        INSERT INTO booking_categories (name, color_hex, price, deposit_default, duration_min, count_label, is_active, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO booking_categories (user_id, name, color_hex, price, deposit_default, duration_min, count_label, is_active, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmt->execute([
+        $owner,
         $name,
         clean_color($in['color_hex'] ?? null),
         num_or_null($in['price'] ?? null),
@@ -82,7 +85,7 @@ if ($method === 'PUT' || $method === 'PATCH') {
     $stmt = $pdo->prepare("
         UPDATE booking_categories
         SET name = ?, color_hex = ?, price = ?, deposit_default = ?, duration_min = ?, count_label = ?, is_active = ?, sort_order = ?
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
     ");
     $stmt->execute([
         $name,
@@ -93,7 +96,7 @@ if ($method === 'PUT' || $method === 'PATCH') {
         trim($in['count_label'] ?? '') ?: null,
         empty($in['is_active']) ? 0 : 1,
         (int) ($in['sort_order'] ?? 0),
-        $id,
+        $id, $owner,
     ]);
     echo json_encode(['success' => true, 'id' => $id]);
     exit;
@@ -106,7 +109,7 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         echo json_encode(['error' => 'ต้องการ id']);
         exit;
     }
-    $pdo->prepare("DELETE FROM booking_categories WHERE id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM booking_categories WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;
 }

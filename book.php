@@ -1,17 +1,31 @@
 <?php
 /**
- * หน้าลูกค้าจองคิวเอง (สาธารณะ ไม่ต้อง login)
+ * หน้าลูกค้าจองคิวเอง (สาธารณะ ไม่ต้อง login) — ต่อร้านผ่าน ?shop=slug
  * ส่งคำขอจอง → บันทึกเป็น status=new, source=customer แล้วรอร้านยืนยัน
  */
+require __DIR__ . '/app/booking_helpers.php';
 $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
 $apiBase = $base . '/api';
+
+$shopSlug = trim($_GET['shop'] ?? '');
+$shopName = '';
+$shopOk = false;
+try {
+    $pdo = require __DIR__ . '/app/db.php';
+    if ($shopSlug !== '') {
+        $st = $pdo->prepare("SELECT shop_name FROM app_users WHERE shop_slug = ? AND status = 'active' LIMIT 1");
+        $st->execute([$shopSlug]);
+        $sn = $st->fetchColumn();
+        if ($sn !== false) { $shopName = (string) $sn; $shopOk = true; }
+    }
+} catch (Throwable $e) { /* แสดงหน้าไม่พบร้านด้านล่าง */ }
 ?>
 <!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>จองคิว — Beauty Booking</title>
+  <title>จองคิวออนไลน์</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,12 +39,21 @@ $apiBase = $base . '/api';
     <div class="wrap d-flex align-items-center gap-2">
       <span class="logo-badge" style="width:46px;height:46px;font-size:1.15rem;"><i class="bi bi-flower1"></i></span>
       <div>
-        <div class="brand" style="font-size: 1.3rem; font-weight: 600;">จองคิว</div>
-        <small class="text-muted">ป๊อปอาย ช่างแต่งหน้าสุราษฎร์</small>
+        <div class="brand" style="font-size: 1.3rem; font-weight: 600;">จองคิวออนไลน์</div>
+        <small class="text-muted"><?= $shopOk ? 'กรอกข้อมูลเพื่อส่งคำขอจอง' : 'เปิดลิงก์จองจากผู้ให้บริการ' ?></small>
       </div>
     </div>
   </header>
 
+  <?php if (!$shopOk): ?>
+  <div class="wrap pb-5 rise">
+    <div class="form-card p-4 text-center">
+      <div style="font-size: 2.5rem;">🔎</div>
+      <h2 class="h6 fw-bold mt-2">ไม่พบร้านที่ต้องการจอง</h2>
+      <p class="text-muted mb-0">โปรดเปิดลิงก์จองที่ทางร้านให้มา (เช่น <code>?shop=ชื่อร้าน</code>)</p>
+    </div>
+  </div>
+  <?php else: ?>
   <div class="wrap pb-5 rise">
     <!-- หน้าสำเร็จ -->
     <div class="form-card p-4 text-center d-none" id="successCard">
@@ -133,14 +156,17 @@ $apiBase = $base . '/api';
       </form>
     </div>
   </div>
+  <?php endif; ?>
 
   <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div id="toast" class="toast" role="alert"><div class="toast-body" id="toastBody"></div></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <?php if ($shopOk): ?>
   <script>
     const API_BASE = <?= json_encode($apiBase) ?>;
+    const SHOP = <?= json_encode($shopSlug) ?>;
     let CATEGORIES = [], SERVICES = [], STAFF = [];
     const money = v => Number(v).toLocaleString('th-TH', {minimumFractionDigits: 0});
 
@@ -152,8 +178,8 @@ $apiBase = $base . '/api';
       new bootstrap.Toast(el).show();
     }
 
-    // โหลดประเภทงาน + บริการ
-    fetch(API_BASE + '/options.php').then(r => r.json()).then(data => {
+    // โหลดประเภทงาน + บริการ (ของร้านนี้)
+    fetch(API_BASE + '/options.php?shop=' + encodeURIComponent(SHOP)).then(r => r.json()).then(data => {
       CATEGORIES = data.categories || [];
       SERVICES = data.services || [];
       STAFF = data.staff || [];
@@ -268,7 +294,7 @@ $apiBase = $base . '/api';
       if (!date) { el.textContent = 'เลือกวันที่เพื่อดูคิวที่ถูกจอง'; return; }
       const staff = document.getElementById('staffSelect').value;
       const staffParam = staff ? ('&staff=' + staff) : '&staff=none';
-      fetch(API_BASE + '/availability.php?date=' + date + staffParam).then(r => r.json()).then(d => {
+      fetch(API_BASE + '/availability.php?shop=' + encodeURIComponent(SHOP) + '&date=' + date + staffParam).then(r => r.json()).then(d => {
         if (!d.busy || d.busy.length === 0) { el.innerHTML = '<span class="text-success">ช่วงนี้ยังว่าง 🎉</span>'; return; }
         el.innerHTML = d.busy.map(b => '<span class="busy-chip">' + b.start + ' - ' + b.end + '</span>').join('');
       }).catch(() => { el.textContent = 'โหลดข้อมูลคิวไม่สำเร็จ'; });
@@ -295,6 +321,7 @@ $apiBase = $base . '/api';
         staff_id: fd.get('staff_id') || '',
         slip_path: fd.get('slip_path') || '',
         note: fd.get('note') || '',
+        shop: SHOP,
         category_ids: categoryIds,
         service_ids: serviceIds,
       };
@@ -336,5 +363,6 @@ $apiBase = $base . '/api';
   </script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="<?= htmlspecialchars($base) ?>/assets/mappicker.js"></script>
+  <?php endif; ?>
 </body>
 </html>

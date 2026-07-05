@@ -42,15 +42,17 @@ if (($settings['last_sent_date'] ?? '') === $today) {
 $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
 
 $pdo = require $root . '/app/db.php';
+// ระบบหลายร้าน: แจ้งเตือนคิวของเจ้าของการตั้งค่า Telegram (ซูเปอร์แอดมิน)
+$ownerId = (int) $pdo->query("SELECT id FROM app_users WHERE role = 'admin' ORDER BY id LIMIT 1")->fetchColumn();
 $stmt = $pdo->prepare("
     SELECT b.customer_name, b.customer_phone, b.start_time, b.end_time, b.num_people,
            (SELECT GROUP_CONCAT(c.name) FROM booking_category_pivot p
             JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names
     FROM bookings b
-    WHERE b.appointment_date = ?
+    WHERE b.user_id = ? AND b.appointment_date = ?
     ORDER BY b.start_time
 ");
-$stmt->execute([$tomorrow]);
+$stmt->execute([$ownerId, $tomorrow]);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $tomorrowThai = (new DateTime($tomorrow))->format('d/m/Y');
@@ -71,7 +73,7 @@ if (count($rows) === 0) {
     }
 }
 
-$lines[] = '— ป๊อปอาย ช่างแต่งหน้าสุราษฎร์';
+$lines[] = '— แจ้งเตือนจากแอปจองคิว';
 $text = implode("\n", $lines);
 
 $result = sendTelegramMessage($text);

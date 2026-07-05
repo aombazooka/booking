@@ -3,13 +3,25 @@ require __DIR__ . '/app/auth.php';
 requireLogin();
 $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
 $apiBase = $base . '/api';
+
+// โหมดซูเปอร์แอดมินสลับเข้าไปจัดการร้านอื่น
+$actingShop = actingShopId();
+$actingShopName = '';
+if ($actingShop > 0) {
+    try {
+        $pdo = require __DIR__ . '/app/db.php';
+        $s = $pdo->prepare("SELECT shop_name FROM app_users WHERE id = ?");
+        $s->execute([$actingShop]);
+        $actingShopName = (string) $s->fetchColumn();
+    } catch (Throwable $e) { /* ข้าม */ }
+}
 ?>
 <!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Beauty Booking</title>
+  <title>แอปจองคิว</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
@@ -39,9 +51,9 @@ $apiBase = $base . '/api';
   <header class="topbar py-3">
     <div class="container-wrap container-fluid d-flex justify-content-between align-items-center">
       <div>
-        <div class="eyebrow">Beauty Booking</div>
+        <div class="eyebrow">แอปจองคิว</div>
         <div class="brand title" style="font-size: 1.25rem; font-weight: 600;">ตารางคิวงาน</div>
-        <div class="subtitle">ป๊อปอาย ช่างแต่งหน้าสุราษฎร์</div>
+        <div class="subtitle">ระบบจัดการคิวงาน</div>
       </div>
       <div class="dropdown">
         <button class="icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="เมนู">
@@ -52,12 +64,28 @@ $apiBase = $base . '/api';
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/admin/services.php"><i class="bi bi-gear me-2"></i> จัดการบริการ &amp; ช่าง</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/telegram.php"><i class="bi bi-bell me-2"></i> แจ้งเตือน Telegram</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/account.php"><i class="bi bi-key me-2"></i> เปลี่ยนรหัสผ่าน</a></li>
+          <?php if (isSuperAdmin()): ?>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/admin/users.php"><i class="bi bi-people me-2"></i> จัดการผู้ใช้ / อนุมัติร้าน</a></li>
+          <?php endif; ?>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item text-danger" href="<?= htmlspecialchars($base) ?>/logout.php"><i class="bi bi-box-arrow-right me-2"></i> ออกจากระบบ</a></li>
         </ul>
       </div>
     </div>
   </header>
+
+  <?php if ($actingShop > 0): ?>
+  <div class="container-wrap" style="max-width:1140px;margin-inline:auto;padding:12px 24px 0;">
+    <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2 mb-0" style="border-radius:14px;">
+      <span><i class="bi bi-shield-lock"></i> โหมดแอดมิน — กำลังจัดการร้าน: <strong><?= htmlspecialchars($actingShopName ?: ('#' . $actingShop)) ?></strong></span>
+      <form method="post" action="<?= htmlspecialchars($base) ?>/admin/users.php" class="m-0">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>">
+        <input type="hidden" name="id" value="0">
+        <button name="action" value="manage" class="btn btn-sm btn-dark"><i class="bi bi-box-arrow-left"></i> ออกจากโหมดจัดการร้าน</button>
+      </form>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <main class="container-wrap container-fluid py-3 pb-5">
     <div class="soft-card p-3 mb-3">

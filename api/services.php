@@ -17,6 +17,7 @@ requireLoginApi();
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method !== 'GET') requireCsrf();
+$owner = ownerId();
 
 function svc_input(): array
 {
@@ -29,23 +30,26 @@ function svc_num_or_null($v): ?float
     return ($v === null || $v === '') ? null : (float) $v;
 }
 
-/** ตั้งค่าความสัมพันธ์ บริการ→ประเภทงาน ใหม่ทั้งหมด */
-function syncServiceCategories(PDO $pdo, int $serviceId, $categoryIds): void
+/** ตั้งค่าความสัมพันธ์ บริการ→ประเภทงาน ใหม่ทั้งหมด (ผูกเฉพาะประเภทของเจ้าของ) */
+function syncServiceCategories(PDO $pdo, int $serviceId, int $userId, $categoryIds): void
 {
     $pdo->prepare("DELETE FROM service_category_link WHERE service_id = ?")->execute([$serviceId]);
-    $ins = $pdo->prepare("INSERT IGNORE INTO service_category_link (service_id, category_id) VALUES (?, ?)");
+    $ins = $pdo->prepare("INSERT IGNORE INTO service_category_link (service_id, category_id)
+                          SELECT ?, id FROM booking_categories WHERE id = ? AND user_id = ?");
     foreach ((array) $categoryIds as $cid) {
         $cid = (int) $cid;
-        if ($cid > 0) $ins->execute([$serviceId, $cid]);
+        if ($cid > 0) $ins->execute([$serviceId, $cid, $userId]);
     }
 }
 
 if ($method === 'GET') {
-    $rows = $pdo->query("
+    $stmt = $pdo->prepare("
         SELECT s.id, s.name, s.price, s.is_active, s.sort_order,
                (SELECT GROUP_CONCAT(l.category_id) FROM service_category_link l WHERE l.service_id = s.id) AS category_ids
-        FROM booking_services s ORDER BY s.sort_order, s.id
-    ")->fetchAll(PDO::FETCH_ASSOC);
+        FROM booking_services s WHERE s.user_id = ? ORDER BY s.sort_order, s.id
+    ");
+    $stmt->execute([$owner]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as &$r) {
         $r['category_ids'] = $r['category_ids'] ? array_map('intval', explode(',', $r['category_ids'])) : [];
     }
@@ -62,15 +66,16 @@ if ($method === 'POST' && ($_GET['action'] ?? '') !== 'delete') {
         echo json_encode(['error' => 'กรุณากรอกชื่อบริการ']);
         exit;
     }
-    $stmt = $pdo->prepare("INSERT INTO booking_services (name, price, is_active, sort_order) VALUES (?, ?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO booking_services (user_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?)");
     $stmt->execute([
+        $owner,
         $name,
         svc_num_or_null($in['price'] ?? null),
         empty($in['is_active']) ? 0 : 1,
         (int) ($in['sort_order'] ?? 0),
     ]);
     $newId = (int) $pdo->lastInsertId();
-    syncServiceCategories($pdo, $newId, $in['category_ids'] ?? []);
+    syncServiceCategories($pdo, $newId, $owner, $in['category_ids'] ?? []);
     echo json_encode(['success' => true, 'id' => $newId]);
     exit;
 }
@@ -84,16 +89,24 @@ if ($method === 'PUT' || $method === 'PATCH') {
         echo json_encode(['error' => 'ต้องการ id และชื่อบริการ']);
         exit;
     }
-    $stmt = $pdo->prepare("UPDATE booking_services SET name = ?, price = ?, is_active = ?, sort_order = ? WHERE id = ?");
+    // ตรวจว่าบริการเป็นของเจ้าของ
+    $chk = $pdo->prepare("SELECT COUNT(*) FROM booking_services WHERE id = ? AND user_id = ?");
+    $chk->execute([$id, $owner]);
+    if (!$chk->fetchColumn()) {
+        http_response_code(404);
+        echo json_encode(['error' => 'ไม่พบบริการ']);
+        exit;
+    }
+    $stmt = $pdo->prepare("UPDATE booking_services SET name = ?, price = ?, is_active = ?, sort_order = ? WHERE id = ? AND user_id = ?");
     $stmt->execute([
         $name,
         svc_num_or_null($in['price'] ?? null),
         empty($in['is_active']) ? 0 : 1,
         (int) ($in['sort_order'] ?? 0),
-        $id,
+        $id, $owner,
     ]);
     if (array_key_exists('category_ids', $in)) {
-        syncServiceCategories($pdo, $id, $in['category_ids']);
+        syncServiceCategories($pdo, $id, $owner, $in['category_ids']);
     }
     echo json_encode(['success' => true, 'id' => $id]);
     exit;
@@ -106,7 +119,7 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         echo json_encode(['error' => 'ต้องการ id']);
         exit;
     }
-    $pdo->prepare("DELETE FROM booking_services WHERE id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM booking_services WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;
 }

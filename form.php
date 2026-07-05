@@ -14,23 +14,30 @@ try {
   if (!$pdo instanceof PDO) {
     throw new RuntimeException('Database not configured');
   }
-  $categories = $pdo->query("SELECT id, name, color_hex, count_label, duration_min, price, deposit_default FROM booking_categories WHERE is_active = 1 ORDER BY sort_order, id")->fetchAll(PDO::FETCH_ASSOC);
-  $services   = $pdo->query("
+  $owner = ownerId();
+  $q = $pdo->prepare("SELECT id, name, color_hex, count_label, duration_min, price, deposit_default FROM booking_categories WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id");
+  $q->execute([$owner]);
+  $categories = $q->fetchAll(PDO::FETCH_ASSOC);
+  $q = $pdo->prepare("
     SELECT s.id, s.name, s.price,
            (SELECT GROUP_CONCAT(l.category_id) FROM service_category_link l WHERE l.service_id = s.id) AS category_ids
-    FROM booking_services s WHERE s.is_active = 1 ORDER BY s.sort_order, s.id
-  ")->fetchAll(PDO::FETCH_ASSOC);
-  $staffList  = $pdo->query("SELECT id, name FROM staff WHERE is_active = 1 ORDER BY sort_order, id")->fetchAll(PDO::FETCH_ASSOC);
+    FROM booking_services s WHERE s.user_id = ? AND s.is_active = 1 ORDER BY s.sort_order, s.id
+  ");
+  $q->execute([$owner]);
+  $services = $q->fetchAll(PDO::FETCH_ASSOC);
+  $q = $pdo->prepare("SELECT id, name FROM staff WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id");
+  $q->execute([$owner]);
+  $staffList = $q->fetchAll(PDO::FETCH_ASSOC);
 
   if ($editId > 0) {
     $stmt = $pdo->prepare("
       SELECT b.id, b.customer_name, b.customer_phone, b.location, b.appointment_date, b.start_time, b.end_time, b.num_people,
-             b.price, b.deposit, b.payment_status, b.status, b.note,
+             b.price, b.deposit, b.payment_status, b.slip_path, b.staff_id, b.status, b.note,
              (SELECT GROUP_CONCAT(p.category_id) FROM booking_category_pivot p WHERE p.booking_id = b.id) AS category_ids,
              (SELECT GROUP_CONCAT(p.service_id) FROM booking_service_pivot p WHERE p.booking_id = b.id) AS service_ids
-      FROM bookings b WHERE b.id = ?
+      FROM bookings b WHERE b.id = ? AND b.user_id = ?
     ");
-    $stmt->execute([$editId]);
+    $stmt->execute([$editId, $owner]);
     $booking = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($booking) {
       $booking['category_ids'] = $booking['category_ids'] ? array_map('intval', explode(',', $booking['category_ids'])) : [];

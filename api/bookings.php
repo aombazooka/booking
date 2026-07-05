@@ -64,8 +64,8 @@ if ($isDelete) {
         echo json_encode(['error' => 'ต้องการ id ของรายการที่ลบ']);
         exit;
     }
-    $stmt = $pdo->prepare("DELETE FROM bookings WHERE id = ?");
-    $stmt->execute([$delId]);
+    $stmt = $pdo->prepare("DELETE FROM bookings WHERE id = ? AND user_id = ?");
+    $stmt->execute([$delId, ownerId()]);
     if ($stmt->rowCount() > 0) {
         echo json_encode(['success' => true]);
     } else {
@@ -85,9 +85,9 @@ if ($getId > 0 && empty($_GET['action'])) {
                b.price, b.deposit, b.payment_status, b.slip_path, b.status, b.staff_id, b.note,
                (SELECT GROUP_CONCAT(p.category_id) FROM booking_category_pivot p WHERE p.booking_id = b.id) AS category_ids,
                (SELECT GROUP_CONCAT(p.service_id) FROM booking_service_pivot p WHERE p.booking_id = b.id) AS service_ids
-        FROM bookings b WHERE b.id = ?
+        FROM bookings b WHERE b.id = ? AND b.user_id = ?
     ");
-    $stmt->execute([$getId]);
+    $stmt->execute([$getId, ownerId()]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
         http_response_code(404);
@@ -143,9 +143,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id LIMIT 1) AS color_hex
         FROM bookings b
         LEFT JOIN staff st ON st.id = b.staff_id
-        WHERE b.appointment_date BETWEEN ? AND ?
+        WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ?
     ";
-    $params = [$start, $end];
+    $params = [ownerId(), $start, $end];
     if (count($statusList) > 0) {
         $placeholders = implode(',', array_fill(0, count($statusList), '?'));
         $sql .= " AND b.status IN ($placeholders)";
@@ -231,6 +231,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
         echo json_encode(['error' => 'ต้องการ id ของรายการที่แก้ไข']);
         exit;
     }
+    $owner = ownerId();
+    // ตรวจว่าคิวนี้เป็นของผู้ใช้จริง (กันแก้ข้ามร้าน)
+    $ownStmt = $pdo->prepare("SELECT user_id FROM bookings WHERE id = ?");
+    $ownStmt->execute([$id]);
+    if ((int) $ownStmt->fetchColumn() !== $owner) {
+        http_response_code(404);
+        echo json_encode(['error' => 'ไม่พบรายการ']);
+        exit;
+    }
     $name   = trim($input['customer_name'] ?? '');
     $phone  = trim($input['customer_phone'] ?? '');
     $location = trim($input['location'] ?? '');
@@ -243,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
     $price  = isset($input['price']) && $input['price'] !== '' ? (float)$input['price'] : null;
     $deposit = isset($input['deposit']) && $input['deposit'] !== '' ? (float)$input['deposit'] : 0;
     $paymentStatus = trim($input['payment_status'] ?? 'unpaid');
-    $staffId = resolveStaffId($pdo, $input['staff_id'] ?? null, false);
+    $staffId = resolveStaffId($pdo, $owner, $input['staff_id'] ?? null, false);
     $slip   = sanitizeSlip($input['slip_path'] ?? null);
     $force  = !empty($input['force']);
     $categories = $input['category_ids'] ?? [];
@@ -271,9 +280,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
     if (!in_array($paymentStatus, ['unpaid', 'deposit_paid', 'paid'], true)) $paymentStatus = 'unpaid';
 
     // กันคิวชน (แยกตามช่าง, ไม่นับคิวที่ยกเลิก, ข้ามตัวเอง) — admin override ได้ด้วย force
-    acquireBookingLock($pdo, $date, $staffId);
+    acquireBookingLock($pdo, $owner, $date, $staffId);
     if ($status !== 'cancelled' && !$force) {
-        $conflicts = findTimeConflicts($pdo, $date, $start, $end, $staffId, $id);
+        $conflicts = findTimeConflicts($pdo, $owner, $date, $start, $end, $staffId, $id);
         if (count($conflicts) > 0) {
             http_response_code(409);
             echo json_encode([
@@ -287,25 +296,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
 
     $pdo->beginTransaction();
     try {
-        $customerId = upsertCustomer($pdo, $name, $phone);
+        $customerId = upsertCustomer($pdo, $owner, $name, $phone);
         $stmt = $pdo->prepare("
             UPDATE bookings SET
                 customer_id = ?, staff_id = ?, customer_name = ?, customer_phone = ?, location = ?, appointment_date = ?,
                 start_time = ?, end_time = ?, num_people = ?, price = ?, deposit = ?, payment_status = ?, slip_path = ?, status = ?, note = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
         ");
-        $stmt->execute([$customerId, $staffId, $name, $phone, $location ?: null, $date, $start, $end, $num, $price, $deposit, $paymentStatus, $slip, $status, $note ?: null, $id]);
+        $stmt->execute([$customerId, $staffId, $name, $phone, $location ?: null, $date, $start, $end, $num, $price, $deposit, $paymentStatus, $slip, $status, $note ?: null, $id, $owner]);
 
         $pdo->prepare("DELETE FROM booking_category_pivot WHERE booking_id = ?")->execute([$id]);
         $pdo->prepare("DELETE FROM booking_service_pivot WHERE booking_id = ?")->execute([$id]);
-        foreach ((array)$categories as $cid) {
-            $cid = (int)$cid;
-            if ($cid > 0) $pdo->prepare("INSERT INTO booking_category_pivot (booking_id, category_id) VALUES (?, ?)")->execute([$id, $cid]);
-        }
-        foreach ((array)$services as $sid) {
-            $sid = (int)$sid;
-            if ($sid > 0) $pdo->prepare("INSERT INTO booking_service_pivot (booking_id, service_id) VALUES (?, ?)")->execute([$id, $sid]);
-        }
+        // ผูก pivot เฉพาะประเภท/บริการที่เป็นของเจ้าของ (กันผูกข้ามร้าน)
+        $insCat = $pdo->prepare("INSERT INTO booking_category_pivot (booking_id, category_id) SELECT ?, id FROM booking_categories WHERE id = ? AND user_id = ?");
+        foreach ((array)$categories as $cid) { $cid = (int)$cid; if ($cid > 0) $insCat->execute([$id, $cid, $owner]); }
+        $insSvc = $pdo->prepare("INSERT INTO booking_service_pivot (booking_id, service_id) SELECT ?, id FROM booking_services WHERE id = ? AND user_id = ?");
+        foreach ((array)$services as $sid) { $sid = (int)$sid; if ($sid > 0) $insSvc->execute([$id, $sid, $owner]); }
         $pdo->commit();
         echo json_encode(['success' => true, 'id' => $id]);
     } catch (Exception $e) {
@@ -321,6 +327,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
     $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
     $isAdmin = isLoggedIn();
     requireCsrf(); // บังคับเฉพาะตอน login (admin) — ลูกค้าสาธารณะข้าม
+
+    // เจ้าของคิว: admin = ตัวเอง, ลูกค้าสาธารณะ = ร้านจาก ?shop / body.shop
+    if ($isAdmin) {
+        $owner = ownerId();
+    } else {
+        $owner = resolveShopOwner($pdo, (string) ($input['shop'] ?? $_GET['shop'] ?? ''));
+        if (!$owner) {
+            http_response_code(400);
+            echo json_encode(['error' => 'ไม่พบร้านที่ต้องการจอง']);
+            exit;
+        }
+    }
 
     // rate-limit เฉพาะลูกค้าจองเอง (กันสแปม) — สูงสุด 6 ครั้ง/15 นาที ต่อ IP
     if (!$isAdmin) {
@@ -376,14 +394,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
         $paymentStatus = trim($input['payment_status'] ?? 'unpaid');
         if (!in_array($paymentStatus, ['unpaid', 'deposit_paid', 'paid'], true)) $paymentStatus = 'unpaid';
         if ($deposit < 0) $deposit = 0;
-        $staffId = resolveStaffId($pdo, $input['staff_id'] ?? null, false);
+        $staffId = resolveStaffId($pdo, $owner, $input['staff_id'] ?? null, false);
         $force = !empty($input['force']);
     } else {
         // ลูกค้าจองเอง: บังคับเป็นคำขอใหม่, ไม่เชื่อราคาจาก client, กันคิวชนแบบบล็อกแข็ง
         $status = 'new';
         $source = 'customer';
         $paymentStatus = 'unpaid';
-        $staffId = resolveStaffId($pdo, $input['staff_id'] ?? null, true);
+        $staffId = resolveStaffId($pdo, $owner, $input['staff_id'] ?? null, true);
         $force = false;
         // กันลูกค้าจองวันที่ย้อนหลัง (เทียบเวลาไทย)
         if ($date < (new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d')) {
@@ -391,11 +409,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
             echo json_encode(['error' => 'กรุณาเลือกวันที่ตั้งแต่วันนี้เป็นต้นไป']);
             exit;
         }
-        // คำนวณราคา/มัดจำจากค่าตั้งต้นของประเภทงานที่เลือก (เฉพาะที่เปิดใช้งาน)
+        // คำนวณราคา/มัดจำจากค่าตั้งต้นของประเภทงานที่เลือก (เฉพาะของร้านนี้ + เปิดใช้งาน)
         $ph = implode(',', array_fill(0, count($categories), '?'));
         $cstmt = $pdo->prepare("SELECT SUM(price) AS p, SUM(deposit_default) AS d, COUNT(*) AS n
-                                FROM booking_categories WHERE is_active = 1 AND id IN ($ph)");
-        $cstmt->execute($categories);
+                                FROM booking_categories WHERE user_id = ? AND is_active = 1 AND id IN ($ph)");
+        $cstmt->execute(array_merge([$owner], $categories));
         $crow = $cstmt->fetch(PDO::FETCH_ASSOC);
         if ((int)$crow['n'] === 0) {
             http_response_code(400);
@@ -409,9 +427,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
     $slip = sanitizeSlip($input['slip_path'] ?? null);
 
     // กันคิวชน (แยกตามช่าง) + ล็อกกัน race
-    acquireBookingLock($pdo, $date, $staffId);
+    acquireBookingLock($pdo, $owner, $date, $staffId);
     if (!$force) {
-        $conflicts = findTimeConflicts($pdo, $date, $start, $end, $staffId, null);
+        $conflicts = findTimeConflicts($pdo, $owner, $date, $start, $end, $staffId, null);
         if (count($conflicts) > 0) {
             http_response_code(409);
             echo json_encode([
@@ -425,12 +443,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
 
     $pdo->beginTransaction();
     try {
-        $customerId = upsertCustomer($pdo, $name, $phone);
+        $customerId = upsertCustomer($pdo, $owner, $name, $phone);
         $stmt = $pdo->prepare("
-            INSERT INTO bookings (customer_id, staff_id, customer_name, customer_phone, location, appointment_date, start_time, end_time, num_people, price, deposit, payment_status, slip_path, status, source, note)
-            VALUES (:customer_id, :staff_id, :customer_name, :customer_phone, :location, :appointment_date, :start_time, :end_time, :num_people, :price, :deposit, :payment_status, :slip_path, :status, :source, :note)
+            INSERT INTO bookings (user_id, customer_id, staff_id, customer_name, customer_phone, location, appointment_date, start_time, end_time, num_people, price, deposit, payment_status, slip_path, status, source, note)
+            VALUES (:user_id, :customer_id, :staff_id, :customer_name, :customer_phone, :location, :appointment_date, :start_time, :end_time, :num_people, :price, :deposit, :payment_status, :slip_path, :status, :source, :note)
         ");
         $stmt->execute([
+            ':user_id'         => $owner,
             ':customer_id'     => $customerId,
             ':staff_id'        => $staffId,
             ':customer_name'   => $name,
@@ -450,20 +469,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
         ]);
         $bookingId = (int) $pdo->lastInsertId();
 
-        foreach ((array)$categories as $cid) {
-            $cid = (int)$cid;
-            if ($cid > 0) {
-                $pdo->prepare("INSERT INTO booking_category_pivot (booking_id, category_id) VALUES (?, ?)")
-                    ->execute([$bookingId, $cid]);
-            }
-        }
-        foreach ((array)$services as $sid) {
-            $sid = (int)$sid;
-            if ($sid > 0) {
-                $pdo->prepare("INSERT INTO booking_service_pivot (booking_id, service_id) VALUES (?, ?)")
-                    ->execute([$bookingId, $sid]);
-            }
-        }
+        // ผูก pivot เฉพาะประเภท/บริการที่เป็นของร้านนี้ (กันผูกข้ามร้าน)
+        $insCat = $pdo->prepare("INSERT INTO booking_category_pivot (booking_id, category_id) SELECT ?, id FROM booking_categories WHERE id = ? AND user_id = ?");
+        foreach ((array)$categories as $cid) { $cid = (int)$cid; if ($cid > 0) $insCat->execute([$bookingId, $cid, $owner]); }
+        $insSvc = $pdo->prepare("INSERT INTO booking_service_pivot (booking_id, service_id) SELECT ?, id FROM booking_services WHERE id = ? AND user_id = ?");
+        foreach ((array)$services as $sid) { $sid = (int)$sid; if ($sid > 0) $insSvc->execute([$bookingId, $sid, $owner]); }
         $pdo->commit();
         echo json_encode(['success' => true, 'id' => $bookingId]);
     } catch (Exception $e) {

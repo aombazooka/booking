@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $testSettings = array_merge($settings, ['bot_token' => $token, 'chat_id' => $chatId]);
             saveTelegramSettings($testSettings);
         }
-        $result = sendTelegramMessage("🔔 <b>ทดสอบแจ้งเตือน</b>\nป๊อปอาย ช่างแต่งหน้าสุราษฎร์ — การเชื่อมต่อ Telegram ใช้งานได้");
+        $result = sendTelegramMessage("🔔 <b>ทดสอบแจ้งเตือน</b>\nแอปจองคิว — การเชื่อมต่อ Telegram ใช้งานได้");
         if ($result['ok']) {
             $message = 'ส่งข้อความทดสอบไปที่ Telegram แล้ว';
             $messageType = 'success';

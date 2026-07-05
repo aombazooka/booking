@@ -18,6 +18,7 @@ try {
 }
 
 requireLoginApi();
+$owner = ownerId();
 
 $start = $_GET['start'] ?? date('Y-m-01');
 $end   = $_GET['end']   ?? date('Y-m-t');
@@ -36,14 +37,14 @@ if ($staffParam === 'none') {
 } elseif ($staffParam !== '' && ctype_digit((string) $staffParam)) {
     $sf = ' AND staff_id = ?'; $sfB = ' AND b.staff_id = ?'; $sfArgs = [(int) $staffParam];
 }
-$base = [$start, $end];          // params สำหรับ query ที่ไม่นับยกเลิก/ทั่วไป
+$base = [$owner, $start, $end];  // params: เจ้าของ + ช่วงวันที่
 $argsMain = array_merge($base, $sfArgs);
 
 // ยอดรวม (ไม่นับยกเลิก)
 $sumStmt = $pdo->prepare("
     SELECT COUNT(*) AS total_bookings, COALESCE(SUM(price),0) AS total_revenue,
            COALESCE(SUM(deposit),0) AS total_deposit, COALESCE(SUM(num_people),0) AS total_people
-    FROM bookings WHERE appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf);
+    FROM bookings WHERE user_id = ? AND appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf);
 $sumStmt->execute($argsMain);
 $s = $sumStmt->fetch(PDO::FETCH_ASSOC);
 $summary = [
@@ -54,21 +55,21 @@ $summary = [
 ];
 
 // แยกตามสถานะ (รวมยกเลิก)
-$statusStmt = $pdo->prepare("SELECT status, COUNT(*) c FROM bookings WHERE appointment_date BETWEEN ? AND ?" . $sf . " GROUP BY status");
+$statusStmt = $pdo->prepare("SELECT status, COUNT(*) c FROM bookings WHERE user_id = ? AND appointment_date BETWEEN ? AND ?" . $sf . " GROUP BY status");
 $statusStmt->execute($argsMain);
 $byStatus = [];
 foreach ($statusStmt->fetchAll(PDO::FETCH_ASSOC) as $r) { $byStatus[$r['status']] = (int) $r['c']; }
 
 // แยกตามการจ่าย (ไม่นับยกเลิก)
 $payStmt = $pdo->prepare("SELECT payment_status, COUNT(*) c, COALESCE(SUM(price),0) revenue, COALESCE(SUM(deposit),0) deposit
-    FROM bookings WHERE appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf . " GROUP BY payment_status");
+    FROM bookings WHERE user_id = ? AND appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf . " GROUP BY payment_status");
 $payStmt->execute($argsMain);
 $byPayment = array_map(function ($p) {
     return ['payment_status' => $p['payment_status'], 'c' => (int) $p['c'], 'revenue' => (float) $p['revenue'], 'deposit' => (float) $p['deposit']];
 }, $payStmt->fetchAll(PDO::FETCH_ASSOC));
 
 // แยกตามที่มา
-$srcStmt = $pdo->prepare("SELECT source, COUNT(*) c FROM bookings WHERE appointment_date BETWEEN ? AND ?" . $sf . " GROUP BY source");
+$srcStmt = $pdo->prepare("SELECT source, COUNT(*) c FROM bookings WHERE user_id = ? AND appointment_date BETWEEN ? AND ?" . $sf . " GROUP BY source");
 $srcStmt->execute($argsMain);
 $bySource = [];
 foreach ($srcStmt->fetchAll(PDO::FETCH_ASSOC) as $r) { $bySource[$r['source']] = (int) $r['c']; }
@@ -78,7 +79,7 @@ $catStmt = $pdo->prepare("SELECT c.id, c.name, c.color_hex, COUNT(*) cnt, COALES
     FROM booking_category_pivot pv
     JOIN booking_categories c ON c.id = pv.category_id
     JOIN bookings b ON b.id = pv.booking_id
-    WHERE b.appointment_date BETWEEN ? AND ? AND b.status <> 'cancelled'" . $sfB . "
+    WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ? AND b.status <> 'cancelled'" . $sfB . "
     GROUP BY c.id, c.name, c.color_hex ORDER BY cnt DESC, revenue DESC");
 $catStmt->execute($argsMain);
 $byCategory = array_map(function ($c) {
@@ -88,7 +89,7 @@ $byCategory = array_map(function ($c) {
 // แยกตามช่าง (งานไม่ระบุช่าง → id NULL)
 $staffStmt = $pdo->prepare("SELECT st.id, st.name, st.color_hex, COUNT(*) cnt, COALESCE(SUM(b.price),0) revenue
     FROM bookings b LEFT JOIN staff st ON st.id = b.staff_id
-    WHERE b.appointment_date BETWEEN ? AND ? AND b.status <> 'cancelled'" . $sfB . "
+    WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ? AND b.status <> 'cancelled'" . $sfB . "
     GROUP BY st.id, st.name, st.color_hex ORDER BY cnt DESC, revenue DESC");
 $staffStmt->execute($argsMain);
 $byStaff = array_map(function ($s) {
@@ -103,16 +104,18 @@ $byStaff = array_map(function ($s) {
 
 // รายเดือน (ไม่นับยกเลิก)
 $monthStmt = $pdo->prepare("SELECT DATE_FORMAT(appointment_date,'%Y-%m') ym, COUNT(*) cnt, COALESCE(SUM(price),0) revenue
-    FROM bookings WHERE appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf . " GROUP BY ym ORDER BY ym");
+    FROM bookings WHERE user_id = ? AND appointment_date BETWEEN ? AND ? AND status <> 'cancelled'" . $sf . " GROUP BY ym ORDER BY ym");
 $monthStmt->execute($argsMain);
 $byMonth = array_map(function ($m) {
     return ['ym' => $m['ym'], 'cnt' => (int) $m['cnt'], 'revenue' => (float) $m['revenue']];
 }, $monthStmt->fetchAll(PDO::FETCH_ASSOC));
 
 // รายชื่อช่าง (สำหรับ dropdown ตัวกรอง)
+$soStmt = $pdo->prepare("SELECT id, name FROM staff WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id");
+$soStmt->execute([$owner]);
 $staffOptions = array_map(function ($s) {
     return ['id' => (int) $s['id'], 'name' => $s['name']];
-}, $pdo->query("SELECT id, name FROM staff WHERE is_active = 1 ORDER BY sort_order, id")->fetchAll(PDO::FETCH_ASSOC));
+}, $soStmt->fetchAll(PDO::FETCH_ASSOC));
 
 echo json_encode([
     'range'         => ['start' => $start, 'end' => $end],

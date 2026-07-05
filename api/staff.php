@@ -17,6 +17,7 @@ requireLoginApi();
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method !== 'GET') requireCsrf();
+$owner = ownerId();
 
 function staff_input(): array
 {
@@ -31,11 +32,12 @@ function staff_color(?string $c): string
 }
 
 if ($method === 'GET') {
-    $rows = $pdo->query("
+    $stmt = $pdo->prepare("
         SELECT id, name, phone, color_hex, is_active, sort_order
-        FROM staff ORDER BY sort_order, id
-    ")->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode($rows);
+        FROM staff WHERE user_id = ? ORDER BY sort_order, id
+    ");
+    $stmt->execute([$owner]);
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
 
@@ -47,8 +49,9 @@ if ($method === 'POST' && ($_GET['action'] ?? '') !== 'delete') {
         echo json_encode(['error' => 'กรุณากรอกชื่อช่าง']);
         exit;
     }
-    $stmt = $pdo->prepare("INSERT INTO staff (name, phone, color_hex, is_active, sort_order) VALUES (?, ?, ?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO staff (user_id, name, phone, color_hex, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->execute([
+        $owner,
         $name,
         trim($in['phone'] ?? '') ?: null,
         staff_color($in['color_hex'] ?? null),
@@ -68,14 +71,14 @@ if ($method === 'PUT' || $method === 'PATCH') {
         echo json_encode(['error' => 'ต้องการ id และชื่อช่าง']);
         exit;
     }
-    $stmt = $pdo->prepare("UPDATE staff SET name = ?, phone = ?, color_hex = ?, is_active = ?, sort_order = ? WHERE id = ?");
+    $stmt = $pdo->prepare("UPDATE staff SET name = ?, phone = ?, color_hex = ?, is_active = ?, sort_order = ? WHERE id = ? AND user_id = ?");
     $stmt->execute([
         $name,
         trim($in['phone'] ?? '') ?: null,
         staff_color($in['color_hex'] ?? null),
         empty($in['is_active']) ? 0 : 1,
         (int) ($in['sort_order'] ?? 0),
-        $id,
+        $id, $owner,
     ]);
     echo json_encode(['success' => true, 'id' => $id]);
     exit;
@@ -89,7 +92,7 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         exit;
     }
     // ลบช่าง → งานที่เคยผูกจะกลายเป็น "ไม่ระบุช่าง" (FK ON DELETE SET NULL)
-    $pdo->prepare("DELETE FROM staff WHERE id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM staff WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;
 }

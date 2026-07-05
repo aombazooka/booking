@@ -17,12 +17,13 @@ try {
 }
 
 requireLoginApi();
+$owner = ownerId();
 
 // ข้อมูลลูกค้ารายคน + ประวัติการจอง
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 if ($id > 0) {
-    $stmt = $pdo->prepare("SELECT id, name, phone, note, created_at FROM customers WHERE id = ?");
-    $stmt->execute([$id]);
+    $stmt = $pdo->prepare("SELECT id, name, phone, note, created_at FROM customers WHERE id = ? AND user_id = ?");
+    $stmt->execute([$id, $owner]);
     $cust = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$cust) {
         http_response_code(404);
@@ -31,9 +32,9 @@ if ($id > 0) {
     }
     $h = $pdo->prepare("
         SELECT id, appointment_date, start_time, end_time, status, price, deposit, payment_status
-        FROM bookings WHERE customer_id = ? ORDER BY appointment_date DESC, start_time DESC
+        FROM bookings WHERE customer_id = ? AND user_id = ? ORDER BY appointment_date DESC, start_time DESC
     ");
-    $h->execute([$id]);
+    $h->execute([$id, $owner]);
     $cust['bookings'] = $h->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode($cust);
     exit;
@@ -46,18 +47,19 @@ if (isset($_GET['q'])) {
     $like = '%' . $q . '%';
     $stmt = $pdo->prepare("
         SELECT id, name, phone FROM customers
-        WHERE name LIKE ? OR phone LIKE ?
+        WHERE user_id = ? AND (name LIKE ? OR phone LIKE ?)
         ORDER BY name LIMIT 10
     ");
-    $stmt->execute([$like, $like]);
+    $stmt->execute([$owner, $like, $like]);
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
 
 // รายชื่อทั้งหมด + จำนวนครั้งที่จอง
-$rows = $pdo->query("
+$rows = $pdo->prepare("
     SELECT c.id, c.name, c.phone, c.note, c.created_at,
            (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id) AS booking_count
-    FROM customers c ORDER BY c.name
-")->fetchAll(PDO::FETCH_ASSOC);
-echo json_encode($rows);
+    FROM customers c WHERE c.user_id = ? ORDER BY c.name
+");
+$rows->execute([$owner]);
+echo json_encode($rows->fetchAll(PDO::FETCH_ASSOC));
