@@ -15,7 +15,7 @@ $apiBase = $base . '/api';
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
-  <link href="<?= htmlspecialchars($base) ?>/assets/app.css" rel="stylesheet">
+  <link href="<?= htmlspecialchars($base) ?>/assets/app.css?v=<?= assetVer('assets/app.css') ?>" rel="stylesheet">
   <style>
     table td, table th { font-size: 0.92rem; vertical-align: middle; }
     /* จำกัดความสูงกราฟ กัน Chart.js ยืดไม่สิ้นสุด (maintainAspectRatio:false) */
@@ -30,9 +30,9 @@ $apiBase = $base . '/api';
 </head>
 <body>
   <header class="head py-3 mb-3">
-    <div class="wrap-wide d-flex justify-content-between align-items-center">
+    <div class="wrap-wide d-flex justify-content-between align-items-center flex-wrap gap-2">
       <div>
-        <a href="<?= htmlspecialchars($base) ?>/" class="text-muted text-decoration-none small"><i class="bi bi-arrow-left"></i> กลับ</a>
+        <a href="<?= htmlspecialchars($base) ?>/" class="back-btn"><i class="bi bi-arrow-left"></i> กลับ</a>
         <h1 class="brand mb-0 mt-1" style="font-size: 1.35rem; font-weight: 600;">รายงานสรุป</h1>
         <small class="text-muted" id="rangeLabel">—</small>
       </div>

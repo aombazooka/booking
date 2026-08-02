@@ -24,6 +24,28 @@ function rateLimitOk(string $key, int $max, int $windowSec): bool
 }
 
 /**
+ * แปลง count_label ของประเภทงาน → หน่วยที่ใช้แสดงผลหลังบันทึก
+ *   'จำนวนชั่วโมง' → 'ชั่วโมง',  'จำนวนคน' → 'คน',  ว่าง/NULL → 'คน' (ค่าเดิมของระบบ)
+ * ใช้ให้ตรงกับป้ายในฟอร์มจอง เพราะบางประเภทงานนับเป็นชั่วโมง ไม่ใช่คน
+ */
+function countUnitFromLabel(?string $label): string
+{
+    $u = trim((string) $label);
+    if ($u === '') {
+        return 'คน';
+    }
+    // ตัดคำนำหน้า "จำนวน" ออก เหลือเฉพาะหน่วย
+    $u = trim(preg_replace('/^จำนวน\s*/u', '', $u));
+    return $u !== '' ? $u : 'คน';
+}
+
+/** SQL subquery: count_label ของประเภทงานแรกที่ตั้งป้ายไว้ (ใช้ร่วมกับ alias b ของตาราง bookings) */
+const COUNT_LABEL_SUBQUERY = "(SELECT c.count_label FROM booking_category_pivot p
+            JOIN booking_categories c ON c.id = p.category_id
+            WHERE p.booking_id = b.id AND c.count_label IS NOT NULL AND c.count_label <> ''
+            ORDER BY c.sort_order, c.id LIMIT 1)";
+
+/**
  * ล็อกตามวัน+ช่าง (advisory lock ระดับ DB) กันสองคำขอจองช่องเดียวกันพร้อมกัน (TOCTOU)
  * ล็อกจะถูกปลดเองเมื่อจบ request (ปิด connection) — เรียกก่อนเช็คคิวชน+insert
  */

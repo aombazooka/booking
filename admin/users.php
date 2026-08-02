@@ -45,14 +45,14 @@ $statusLabel = ['pending' => '<span class="badge text-bg-warning">รออน�
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
-  <link href="<?= htmlspecialchars($projectBase) ?>/assets/app.css" rel="stylesheet">
+  <link href="<?= htmlspecialchars($projectBase) ?>/assets/app.css?v=<?= assetVer('assets/app.css') ?>" rel="stylesheet">
   <style> table td, table th { vertical-align: middle; font-size: 0.92rem; } </style>
 </head>
 <body>
   <header class="head py-3 mb-3">
     <div class="wrap-wide d-flex justify-content-between align-items-center">
       <div>
-        <a href="<?= htmlspecialchars($projectBase) ?>/" class="text-muted text-decoration-none small"><i class="bi bi-arrow-left"></i> กลับ</a>
+        <a href="<?= htmlspecialchars($projectBase) ?>/" class="back-btn"><i class="bi bi-arrow-left"></i> กลับ</a>
         <h1 class="brand mb-0 mt-1" style="font-size: 1.35rem; font-weight: 600;">จัดการผู้ใช้ / อนุมัติร้าน</h1>
         <small class="text-muted">เฉพาะผู้ดูแลระบบ</small>
       </div>

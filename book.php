@@ -4,6 +4,7 @@
  * ส่งคำขอจอง → บันทึกเป็น status=new, source=customer แล้วรอร้านยืนยัน
  */
 require __DIR__ . '/app/booking_helpers.php';
+require_once __DIR__ . '/app/auth.php'; // ใช้ assetVer() สำหรับ cache-busting (หน้านี้ไม่ต้อง login)
 $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
 $apiBase = $base . '/api';
 
@@ -32,7 +33,7 @@ try {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
-  <link href="<?= htmlspecialchars($base) ?>/assets/app.css" rel="stylesheet">
+  <link href="<?= htmlspecialchars($base) ?>/assets/app.css?v=<?= assetVer('assets/app.css') ?>" rel="stylesheet">
 </head>
 <body>
   <header class="head py-3 mb-3">
@@ -131,9 +132,15 @@ try {
           </div>
         </div>
 
-        <div class="mb-3">
-          <label class="form-label section-title" id="countLabel">จำนวนคน</label>
-          <input type="number" class="form-control soft-input" name="num_people" value="1" min="1" max="99">
+        <div class="row">
+          <div class="col-6 mb-3">
+            <label class="form-label section-title" id="countLabel">จำนวนคน</label>
+            <input type="number" class="form-control soft-input" name="num_people" value="1" min="1" max="99">
+          </div>
+          <div class="col-6 mb-3">
+            <label class="form-label section-title">ค่าเดินทาง (ถ้ามี)</label>
+            <input type="number" step="0.01" min="0" class="form-control soft-input" name="travel_fee" placeholder="บาท">
+          </div>
         </div>
 
         <div class="mb-3">
@@ -318,6 +325,7 @@ try {
         start_time: fd.get('start_time'),
         end_time: fd.get('end_time'),
         num_people: parseInt(fd.get('num_people') || 1, 10) || 1,
+        travel_fee: fd.get('travel_fee') || '',
         staff_id: fd.get('staff_id') || '',
         slip_path: fd.get('slip_path') || '',
         note: fd.get('note') || '',

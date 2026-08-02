@@ -66,7 +66,7 @@ try {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
-  <link href="<?= htmlspecialchars($base) ?>/assets/app.css" rel="stylesheet">
+  <link href="<?= htmlspecialchars($base) ?>/assets/app.css?v=<?= assetVer('assets/app.css') ?>" rel="stylesheet">
 </head>
 <body>
   <header class="head py-3 mb-3">
@@ -158,15 +158,19 @@ try {
         </div>
 
         <div class="row">
-          <div class="col-4 mb-3">
+          <div class="col-6 col-md-3 mb-3">
             <label class="form-label section-title">ราคา (บาท)</label>
             <input type="number" step="0.01" min="0" class="form-control soft-input" name="price" placeholder="-" value="<?= $booking && $booking['price'] !== null ? htmlspecialchars($booking['price']) : '' ?>">
           </div>
-          <div class="col-4 mb-3">
+          <div class="col-6 col-md-3 mb-3">
             <label class="form-label section-title">มัดจำ (บาท)</label>
             <input type="number" step="0.01" min="0" class="form-control soft-input" name="deposit" placeholder="0" value="<?= $booking && isset($booking['deposit']) ? htmlspecialchars($booking['deposit']) : '' ?>">
           </div>
-          <div class="col-4 mb-3">
+          <div class="col-6 col-md-3 mb-3">
+            <label class="form-label section-title">ค่าเดินทาง (บาท)</label>
+            <input type="number" step="0.01" min="0" class="form-control soft-input" name="travel_fee" placeholder="-" value="<?= $booking && isset($booking['travel_fee']) && $booking['travel_fee'] !== null ? htmlspecialchars($booking['travel_fee']) : '' ?>">
+          </div>
+          <div class="col-6 col-md-3 mb-3">
             <label class="form-label section-title">การจ่าย</label>
             <select name="payment_status" class="form-select soft-input">
               <?php
@@ -320,6 +324,7 @@ try {
         num_people: parseInt(fd.get('num_people') || 1, 10) || 1,
         price: fd.get('price') || '',
         deposit: fd.get('deposit') || '',
+        travel_fee: fd.get('travel_fee') || '',
         payment_status: fd.get('payment_status') || 'unpaid',
         staff_id: fd.get('staff_id') || '',
         slip_path: fd.get('slip_path') || '',

@@ -340,6 +340,54 @@ textarea.form-control, textarea.soft-input { min-height: 76px; }
 .fc-theme-standard td, .fc-theme-standard th { border-color: var(--line); }
 .fc .fc-col-header-cell-cushion, .fc .fc-daygrid-day-number { color: var(--ink-soft); text-decoration: none; }
 
+/* ---------- ปุ่มย้อนกลับ (หัวหน้าย่อย) ----------
+   เดิมเป็นลิงก์ตัวเล็กๆ กดยากบนมือถือ — ทำให้เป็นปุ่มจริงที่มีขอบและพื้นที่กดพอ */
+.back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 8px 16px 8px 13px;
+  border: 1px solid var(--line-2); border-radius: var(--r-pill);
+  background: var(--paper); color: var(--ink-soft);
+  font-size: .9rem; font-weight: 600; text-decoration: none;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s;
+}
+.back-btn:hover, .back-btn:focus-visible { background: var(--cream-2); color: var(--ink); border-color: var(--stone-2); text-decoration: none; }
+.back-btn:active { transform: scale(.985); }
+.back-btn i { font-size: 1.05rem; line-height: 1; }
+
+/* ---------- พื้นที่กดบนอุปกรณ์สัมผัส ----------
+   นิ้วต้องการเป้าหมายอย่างน้อย ~44px (Apple HIG / Material) — ปุ่มเล็กทั้งหมดจึงถูกขยาย
+   เฉพาะจอสัมผัส/จอแคบ ส่วนบนเดสก์ท็อปที่ใช้เมาส์ยังคงขนาดกระชับเหมือนเดิม */
+@media (hover: none) and (pointer: coarse), (max-width: 640px) {
+  .btn-sm,
+  .quick-btn,
+  .chip-filter,
+  .chip,
+  .preset-btn,
+  .back-btn,
+  .view-toggle .btn,
+  .fc .fc-button {
+    min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    white-space: nowrap; /* กันป้ายปุ่มตัดบรรทัดจนปุ่มบวมเป็นก้อน */
+  }
+  /* inline-flex ทำให้ช่องว่างระหว่างไอคอนกับข้อความหายไป — ใส่ gap คืน */
+  .btn-sm, .preset-btn, .quick-btn, .view-toggle .btn, .fc .fc-button { gap: 6px; }
+  .btn-sm, .preset-btn { padding: 10px 16px; font-size: .9rem; }
+  .quick-btn, .chip-filter, .chip { padding: 10px 15px; font-size: .88rem; }
+
+  /* ปุ่มไอคอนล้วน: ต้องเป็นวงกลม 44px ไม่ใช่ 42 */
+  .icon-btn { width: 44px; height: 44px; }
+  /* ปุ่มไอคอนที่เป็น .btn-sm (เช่น ปุ่มดูรายละเอียดในลิสต์คิว) ให้เป็นสี่เหลี่ยมจัตุรัส */
+  .btn-sm.icon-only { width: 44px; padding: 0; }
+
+  /* ปุ่มในตารางหลังบ้านมักอยู่ชิดกัน — เว้นระยะกันกดพลาด */
+  .table .btn-sm + .btn-sm { margin-left: 6px; }
+
+  /* สวิตช์ในหน้าสรุปรายเดือน กดง่ายขึ้น */
+  .form-check-input { width: 2.4em; height: 1.3em; }
+  .form-switch .form-check-label { padding-top: 2px; }
+}
+
 /* ---------- motion ---------- */
 @keyframes riseIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .rise { animation: riseIn .45s var(--ease) both; }

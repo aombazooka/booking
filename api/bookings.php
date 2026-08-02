@@ -82,7 +82,7 @@ if ($getId > 0 && empty($_GET['action'])) {
     $stmt = $pdo->prepare("
         SELECT b.id, b.customer_name, b.customer_phone, b.location,
                b.appointment_date, b.start_time, b.end_time, b.num_people,
-               b.price, b.deposit, b.payment_status, b.slip_path, b.status, b.staff_id, b.note,
+               b.price, b.deposit, b.travel_fee, b.payment_status, b.slip_path, b.status, b.staff_id, b.note,
                (SELECT GROUP_CONCAT(p.category_id) FROM booking_category_pivot p WHERE p.booking_id = b.id) AS category_ids,
                (SELECT GROUP_CONCAT(p.service_id) FROM booking_service_pivot p WHERE p.booking_id = b.id) AS service_ids
         FROM bookings b WHERE b.id = ? AND b.user_id = ?
@@ -133,14 +133,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $sql = "
         SELECT b.id, b.customer_name, b.customer_phone, b.location,
                b.appointment_date, b.start_time, b.end_time, b.num_people,
-               b.price, b.deposit, b.payment_status, b.slip_path, b.status, b.source, b.staff_id, b.note,
+               b.price, b.deposit, b.travel_fee, b.payment_status, b.slip_path, b.status, b.source, b.staff_id, b.note,
                st.name AS staff_name,
                (SELECT GROUP_CONCAT(c.id) FROM booking_category_pivot p
                 JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_ids,
                (SELECT GROUP_CONCAT(c.name) FROM booking_category_pivot p
                 JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names,
                (SELECT c.color_hex FROM booking_category_pivot p
-                JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id LIMIT 1) AS color_hex
+                JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id LIMIT 1) AS color_hex,
+               " . COUNT_LABEL_SUBQUERY . " AS count_label
         FROM bookings b
         LEFT JOIN staff st ON st.id = b.staff_id
         WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ?
@@ -172,9 +173,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     foreach ($rows as $r) {
         $startDt = $r['appointment_date'] . ' ' . $r['start_time'];
         $endDt   = $r['appointment_date'] . ' ' . $r['end_time'];
+        $countUnit = countUnitFromLabel($r['count_label'] ?? null);
         $events[] = [
             'id'    => (int)$r['id'],
-            'title' => $r['customer_name'] . ' (' . $r['num_people'] . ' คน)',
+            'title' => $r['customer_name'] . ' (' . $r['num_people'] . ' ' . $countUnit . ')',
             'start' => $startDt,
             'end'   => $endDt,
             'color' => status_to_color((string)$r['status'], $r['color_hex'] ?: '#6b7280'),
@@ -183,11 +185,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 'customer_phone' => $r['customer_phone'],
                 'location'       => $r['location'],
                 'num_people'     => (int)$r['num_people'],
+                'count_unit'     => $countUnit,
                 'category_names' => $r['category_names'],
                 'staff_id'       => $r['staff_id'] !== null ? (int)$r['staff_id'] : null,
                 'staff_name'     => $r['staff_name'],
                 'price'          => $r['price'] !== null ? (float)$r['price'] : null,
                 'deposit'        => (float)$r['deposit'],
+                'travel_fee'     => $r['travel_fee'] !== null ? (float)$r['travel_fee'] : null,
                 'payment_status' => $r['payment_status'],
                 'payment_label'  => payment_to_label((string)$r['payment_status']),
                 'slip_path'      => $r['slip_path'],
@@ -251,6 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
     $status = trim($input['status'] ?? 'new');
     $price  = isset($input['price']) && $input['price'] !== '' ? (float)$input['price'] : null;
     $deposit = isset($input['deposit']) && $input['deposit'] !== '' ? (float)$input['deposit'] : 0;
+    $travelFee = isset($input['travel_fee']) && $input['travel_fee'] !== '' ? (float)$input['travel_fee'] : null;
     $paymentStatus = trim($input['payment_status'] ?? 'unpaid');
     $staffId = resolveStaffId($pdo, $owner, $input['staff_id'] ?? null, false);
     $slip   = sanitizeSlip($input['slip_path'] ?? null);
@@ -300,10 +305,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATC
         $stmt = $pdo->prepare("
             UPDATE bookings SET
                 customer_id = ?, staff_id = ?, customer_name = ?, customer_phone = ?, location = ?, appointment_date = ?,
-                start_time = ?, end_time = ?, num_people = ?, price = ?, deposit = ?, payment_status = ?, slip_path = ?, status = ?, note = ?
+                start_time = ?, end_time = ?, num_people = ?, price = ?, deposit = ?, travel_fee = ?, payment_status = ?, slip_path = ?, status = ?, note = ?
             WHERE id = ? AND user_id = ?
         ");
-        $stmt->execute([$customerId, $staffId, $name, $phone, $location ?: null, $date, $start, $end, $num, $price, $deposit, $paymentStatus, $slip, $status, $note ?: null, $id, $owner]);
+        $stmt->execute([$customerId, $staffId, $name, $phone, $location ?: null, $date, $start, $end, $num, $price, $deposit, $travelFee, $paymentStatus, $slip, $status, $note ?: null, $id, $owner]);
 
         $pdo->prepare("DELETE FROM booking_category_pivot WHERE booking_id = ?")->execute([$id]);
         $pdo->prepare("DELETE FROM booking_service_pivot WHERE booking_id = ?")->execute([$id]);
@@ -425,6 +430,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
     }
 
     $slip = sanitizeSlip($input['slip_path'] ?? null);
+    // ค่าเดินทาง — กรอกได้ทั้งลูกค้าและแอดมิน (ว่าง = ไม่มี)
+    $travelFee = isset($input['travel_fee']) && $input['travel_fee'] !== '' ? (float)$input['travel_fee'] : null;
+    if ($travelFee !== null && $travelFee < 0) $travelFee = 0;
 
     // กันคิวชน (แยกตามช่าง) + ล็อกกัน race
     acquireBookingLock($pdo, $owner, $date, $staffId);
@@ -445,8 +453,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
     try {
         $customerId = upsertCustomer($pdo, $owner, $name, $phone);
         $stmt = $pdo->prepare("
-            INSERT INTO bookings (user_id, customer_id, staff_id, customer_name, customer_phone, location, appointment_date, start_time, end_time, num_people, price, deposit, payment_status, slip_path, status, source, note)
-            VALUES (:user_id, :customer_id, :staff_id, :customer_name, :customer_phone, :location, :appointment_date, :start_time, :end_time, :num_people, :price, :deposit, :payment_status, :slip_path, :status, :source, :note)
+            INSERT INTO bookings (user_id, customer_id, staff_id, customer_name, customer_phone, location, appointment_date, start_time, end_time, num_people, price, deposit, travel_fee, payment_status, slip_path, status, source, note)
+            VALUES (:user_id, :customer_id, :staff_id, :customer_name, :customer_phone, :location, :appointment_date, :start_time, :end_time, :num_people, :price, :deposit, :travel_fee, :payment_status, :slip_path, :status, :source, :note)
         ");
         $stmt->execute([
             ':user_id'         => $owner,
@@ -461,6 +469,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['action']) && !isset($
             ':num_people'      => $num,
             ':price'           => $price,
             ':deposit'         => $deposit,
+            ':travel_fee'      => $travelFee,
             ':payment_status'  => $paymentStatus,
             ':slip_path'       => $slip,
             ':status'          => $status,

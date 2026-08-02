@@ -20,7 +20,7 @@ $owner = ownerId();
 
 $sql = "
     SELECT b.appointment_date, b.start_time, b.end_time, b.customer_name, b.customer_phone,
-           b.num_people, b.price, b.deposit, b.payment_status, b.status, b.source,
+           b.num_people, b.price, b.deposit, b.travel_fee, b.payment_status, b.status, b.source,
            st.name AS staff_name,
            (SELECT GROUP_CONCAT(c.name SEPARATOR ', ') FROM booking_category_pivot p
             JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names
@@ -55,7 +55,7 @@ $csvSafe = static function ($v) {
 
 echo "\xEF\xBB\xBF"; // BOM
 $out = fopen('php://output', 'w');
-fputcsv($out, ['วันที่', 'เวลาเริ่ม', 'เวลาจบ', 'ลูกค้า', 'เบอร์โทร', 'ประเภทงาน', 'ช่าง', 'จำนวน', 'ราคา', 'มัดจำ', 'การจ่าย', 'สถานะ', 'ที่มา']);
+fputcsv($out, ['วันที่', 'เวลาเริ่ม', 'เวลาจบ', 'ลูกค้า', 'เบอร์โทร', 'ประเภทงาน', 'ช่าง', 'จำนวน', 'ราคา', 'มัดจำ', 'ค่าเดินทาง', 'การจ่าย', 'สถานะ', 'ที่มา']);
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
     fputcsv($out, [
         $r['appointment_date'],
@@ -68,6 +68,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         (int) $r['num_people'],
         $r['price'] !== null ? (float) $r['price'] : '',
         (float) $r['deposit'],
+        $r['travel_fee'] !== null ? (float) $r['travel_fee'] : '',
         $payMap[$r['payment_status']] ?? $r['payment_status'],
         $statusMap[$r['status']] ?? $r['status'],
         $srcMap[$r['source']] ?? $r['source'],

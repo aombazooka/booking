@@ -7,6 +7,7 @@
  */
 $root = dirname(__DIR__);
 require $root . '/app/telegram.php';
+require $root . '/app/booking_helpers.php';
 
 $settings = getTelegramSettings();
 $notifyTime = $settings['notify_time'] ?? '18:00';
@@ -47,7 +48,8 @@ $ownerId = (int) $pdo->query("SELECT id FROM app_users WHERE role = 'admin' ORDE
 $stmt = $pdo->prepare("
     SELECT b.customer_name, b.customer_phone, b.start_time, b.end_time, b.num_people,
            (SELECT GROUP_CONCAT(c.name) FROM booking_category_pivot p
-            JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names
+            JOIN booking_categories c ON c.id = p.category_id WHERE p.booking_id = b.id) AS category_names,
+           " . COUNT_LABEL_SUBQUERY . " AS count_label
     FROM bookings b
     WHERE b.user_id = ? AND b.appointment_date = ?
     ORDER BY b.start_time
@@ -67,7 +69,8 @@ if (count($rows) === 0) {
         $start = date('H:i', strtotime($r['start_time']));
         $end = date('H:i', strtotime($r['end_time']));
         $cat = $r['category_names'] ? $esc($r['category_names']) : '-';
-        $lines[] = ($i + 1) . '. ' . $start . '-' . $end . ' ' . $esc($r['customer_name']) . ' (' . (int) $r['num_people'] . ' คน)';
+        $unit = countUnitFromLabel($r['count_label'] ?? null);
+        $lines[] = ($i + 1) . '. ' . $start . '-' . $end . ' ' . $esc($r['customer_name']) . ' (' . (int) $r['num_people'] . ' ' . $esc($unit) . ')';
         $lines[] = '   📞 ' . $esc($r['customer_phone']) . ' · ' . $cat;
         $lines[] = '';
     }

@@ -86,6 +86,7 @@ CREATE TABLE bookings (
     num_people        TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'จำนวน (คน/ชั่วโมง ตาม count_label)',
     price             DECIMAL(10,2) NULL,
     deposit           DECIMAL(10,2) NOT NULL DEFAULT 0,
+    travel_fee        DECIMAL(10,2) NULL COMMENT 'ค่าเดินทาง',
     payment_status    ENUM('unpaid','deposit_paid','paid') NOT NULL DEFAULT 'unpaid',
     slip_path         VARCHAR(255) NULL COMMENT 'ชื่อไฟล์สลิปมัดจำใน uploads/slips',
     status            ENUM('new','confirmed','done','cancelled') NOT NULL DEFAULT 'new' COMMENT 'สถานะคิวงาน',

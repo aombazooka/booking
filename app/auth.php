@@ -20,6 +20,17 @@ function startSession(): void
     }
 }
 
+/**
+ * เลขเวอร์ชันของไฟล์ static — ใส่ต่อท้าย URL (?v=) กันเบราว์เซอร์หยิบไฟล์เก่าใน cache มาใช้
+ * ใช้เวลาที่ไฟล์ถูกแก้ล่าสุด จึงเปลี่ยนเองอัตโนมัติทุกครั้งที่แก้ CSS/JS
+ * @param string $relPath พาธจากรากโปรเจกต์ เช่น 'assets/app.css'
+ */
+function assetVer(string $relPath): string
+{
+    $t = @filemtime(dirname(__DIR__) . '/' . ltrim($relPath, '/'));
+    return $t ? (string) $t : '1';
+}
+
 /** คืน CSRF token ของ session (สร้างถ้ายังไม่มี) */
 function csrfToken(): string
 {

@@ -28,7 +28,7 @@ if ($actingShop > 0) {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
-  <link href="<?= htmlspecialchars($base) ?>/assets/app.css" rel="stylesheet">
+  <link href="<?= htmlspecialchars($base) ?>/assets/app.css?v=<?= assetVer('assets/app.css') ?>" rel="stylesheet">
   <style>
     .container-wrap { max-width: 1140px; margin-inline: auto; padding: 18px 24px; }
     @media (max-width: 768px) {
@@ -60,6 +60,8 @@ if ($actingShop > 0) {
           <i class="bi bi-list" style="font-size:1.35rem;"></i>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/monthly.php"><i class="bi bi-calendar2-week me-2"></i> สรุปคิวงานรายเดือน</a></li>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/auspicious.php"><i class="bi bi-stars me-2"></i> ปฏิทินวันฤกษ์</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/report.php"><i class="bi bi-graph-up me-2"></i> รายงานสรุป</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/admin/services.php"><i class="bi bi-gear me-2"></i> จัดการบริการ &amp; ช่าง</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/telegram.php"><i class="bi bi-bell me-2"></i> แจ้งเตือน Telegram</a></li>
@@ -197,6 +199,8 @@ if ($actingShop > 0) {
       const sourceBadge = p.source === 'customer' ? ' <span class="badge text-bg-info">ลูกค้าจองเอง</span>' : '';
       const priceLine = (p.price !== null && p.price !== undefined)
         ? '<p><strong>ราคา:</strong> ' + money(p.price) + ' บาท' + (p.deposit ? ' (มัดจำ ' + money(p.deposit) + ')' : '') + '</p>' : '';
+      const travelLine = (p.travel_fee !== null && p.travel_fee !== undefined && p.travel_fee !== '')
+        ? '<p><strong>ค่าเดินทาง:</strong> ' + money(p.travel_fee) + ' บาท</p>' : '';
       document.getElementById('eventDetail').innerHTML =
         '<div class="mb-2">' + statusPill(p.status_label || 'ใหม่', p.status_color || '#93c5fd') + sourceBadge + '</div>' +
         '<p><strong>เวลา:</strong> ' + esc(timeRange || '-') + '</p>' +
@@ -204,8 +208,9 @@ if ($actingShop > 0) {
         '<p><strong>โทร:</strong> ' + phone + '</p>' +
         '<p><strong>ประเภท:</strong> ' + esc(p.category_names || '-') + '</p>' +
         '<p><strong>ช่าง:</strong> ' + esc(p.staff_name || 'ไม่ระบุ') + '</p>' +
-        '<p><strong>จำนวน:</strong> ' + esc(p.num_people || 1) + '</p>' +
+        '<p><strong>จำนวน:</strong> ' + esc(p.num_people || 1) + ' ' + esc(p.count_unit || 'คน') + '</p>' +
         priceLine +
+        travelLine +
         '<p><strong>การจ่าย:</strong> ' + esc(p.payment_label || '-') +
           (p.slip_path ? ' <a href="' + base + '/api/slip.php?file=' + encodeURIComponent(p.slip_path) + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary ms-2"><i class="bi bi-receipt"></i> ดูสลิป</a>' : '') + '</p>' +
         '<p><strong>สถานที่:</strong> ' + (mapHref ? '<a target="_blank" rel="noopener" href="' + esc(mapHref) + '">เปิดแผนที่</a>' : '-') + '</p>' +
@@ -286,11 +291,11 @@ if ($actingShop > 0) {
               '<div class="today-time">' + esc(r.time) + '</div>' +
               '<div class="flex-grow-1">' +
                 '<div class="today-title">' + esc(r.extendedProps.customer_name) + '</div>' +
-                '<div class="today-meta">' + esc(r.extendedProps.category_names || '-') + ' • ' + esc(r.extendedProps.num_people) + ' คน</div>' +
+                '<div class="today-meta">' + esc(r.extendedProps.category_names || '-') + ' • ' + esc(r.extendedProps.num_people) + ' ' + esc(r.extendedProps.count_unit || 'คน') + '</div>' +
                 '<div class="mt-1">' + statusPill(r.extendedProps.status_label, r.color) +
                   (r.extendedProps.slip_path ? ' <span class="badge text-bg-secondary"><i class="bi bi-receipt"></i> สลิป</span>' : '') + '</div>' +
               '</div>' +
-              '<button class="btn btn-sm btn-light border" data-id="' + r.id + '"><i class="bi bi-eye"></i></button>' +
+              '<button class="btn btn-sm btn-light border icon-only" data-id="' + r.id + '" aria-label="ดูรายละเอียด"><i class="bi bi-eye"></i></button>' +
             '</article>'
           ).join('');
 
