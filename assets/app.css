@@ -251,6 +251,7 @@ textarea.form-control, textarea.soft-input { min-height: 76px; }
   font-size: .85rem; padding: 7px 13px; color: var(--ink-soft); transition: background .15s, border-color .15s;
 }
 .quick-btn:hover { background: var(--cream-2); border-color: var(--stone-2); }
+.quick-btn.slot-on, .quick-btn.slot-on:hover { background: var(--rose-deep); border-color: var(--rose-deep); color: #fff; }
 
 /* ---------- today list items ---------- */
 .today-list-item {
@@ -297,6 +298,29 @@ textarea.form-control, textarea.soft-input { min-height: 76px; }
   display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #fff;
   background: var(--rose); box-shadow: 0 12px 28px -10px rgba(183,110,121,.9);
 }
+
+/* ---------- แถวช่างที่รับงาน (ช่างหลัก + ช่างเสริม) ----------
+   แต่ละแถว = ช่าง 1 คน พร้อมมัดจำที่จ่ายให้ช่างคนนั้นและสลิปของตัวเอง */
+.staff-row {
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--paper); padding: 12px 13px; margin-bottom: 10px;
+}
+.staff-row.is-main { border-color: var(--rose-tint); background: linear-gradient(var(--paper), var(--rose-tint) 260%); }
+.staff-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.staff-tag { font-size: .8rem; font-weight: 600; color: var(--stone); display: inline-flex; align-items: center; gap: 5px; }
+.staff-row.is-main .staff-tag { color: var(--rose-deep); }
+.staff-remove {
+  border: 0; background: none; color: var(--stone-2); padding: 4px 6px;
+  border-radius: var(--r-xs); line-height: 1; transition: color .15s, background .15s;
+}
+.staff-remove:hover { color: var(--danger); background: #FBEDEC; }
+/* ปุ่ม "เพิ่มสลิป" เป็น <label> ครอบ input[type=file] จึงต้องบังคับให้เป็นปุ่มเต็มความกว้าง */
+.staff-slip-btn {
+  margin: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 40px; white-space: nowrap;
+}
+.staff-slip-btn:hover { background: var(--cream-2); border-color: var(--stone-2); }
 
 /* ---------- sticky action bar ---------- */
 .sticky-action {

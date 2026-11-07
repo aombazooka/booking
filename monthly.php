@@ -286,7 +286,7 @@ $apiBase = $base . '/api';
             const nameTag = showNames
               ? '<span class="job-meta">คุณ' + esc(shortName(it.name)) + '</span>'
               : '';
-            return '<div class="job"><span class="job-time">' + esc(it.start) + ' – ' + esc(it.end) + '</span>' +
+            return '<div class="job"><span class="job-time">' + esc(it.time_label) + '</span>' +
               tags + staffTag + nameTag + '</div>';
           }).join('');
           return '<div class="day-row">' +

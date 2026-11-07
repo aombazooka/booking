@@ -1,0 +1,10 @@
+# กฎความปลอดภัยระดับราก (Apache) — ถ้าใช้ nginx ต้องตั้งกฎเทียบเท่าใน server block
+Options -Indexes
+
+# กันไฟล์/โฟลเดอร์ที่ขึ้นต้นด้วยจุด เช่น .git, .claude, .htaccess
+RedirectMatch 404 /\.(?!well-known)
+
+# กันไฟล์ตั้งค่าและเอกสารที่ไม่ควรเปิดจากเว็บ
+<FilesMatch "(?i)^(config(\.example)?\.php|.*\.(md|sql|log|json))$">
+    Require all denied
+</FilesMatch>

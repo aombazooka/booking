@@ -56,13 +56,6 @@ try {
   </div>
   <?php else: ?>
   <div class="wrap pb-5 rise">
-    <!-- หน้าสำเร็จ -->
-    <div class="form-card p-4 text-center d-none" id="successCard">
-      <div style="font-size: 3rem;">✅</div>
-      <h2 class="h5 fw-bold mt-2">ส่งคำขอจองเรียบร้อย</h2>
-      <p class="text-muted mb-3">ทางร้านจะติดต่อกลับเพื่อยืนยันคิวอีกครั้ง ขอบคุณค่ะ 🌸</p>
-      <button class="btn btn-light border" onclick="location.reload()">จองคิวเพิ่ม</button>
-    </div>
 
     <div class="form-card p-3 p-md-4" id="formCard">
       <form id="bookForm">
@@ -104,31 +97,11 @@ try {
             <label class="form-label section-title">วันที่ต้องการจอง</label>
             <input type="date" class="form-control soft-input" name="appointment_date" required>
           </div>
-          <div class="col-12 mb-2">
-            <div class="section-title mb-1">ช่วงเวลาที่มีคิวแล้วในวันนี้</div>
-            <div id="busyList" class="text-muted small">เลือกวันที่เพื่อดูคิวที่ถูกจอง</div>
-          </div>
-          <div class="col-6 mb-3">
-            <label class="form-label section-title">เวลาเริ่ม</label>
-            <input type="time" class="form-control soft-input" name="start_time" required>
-          </div>
-          <div class="col-6 mb-3">
-            <label class="form-label section-title">เวลาจบ</label>
-            <input type="time" class="form-control soft-input" name="end_time" required>
-          </div>
-        </div>
-
-        <div class="mb-3">
-          <div class="section-title">ตั้งเวลาเร็ว</div>
-          <div class="d-flex flex-wrap gap-2 mb-2">
-            <button class="quick-btn" type="button" data-start="09:00">สาย 09:00</button>
-            <button class="quick-btn" type="button" data-start="13:00">บ่าย 13:00</button>
-            <button class="quick-btn" type="button" data-start="17:00">เย็น 17:00</button>
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <button class="quick-btn" type="button" data-duration="60">+60 นาที</button>
-            <button class="quick-btn" type="button" data-duration="90">+90 นาที</button>
-            <button class="quick-btn" type="button" data-duration="120">+120 นาที</button>
+          <div class="col-12 mb-3">
+            <div class="section-title mb-1">เลือกเวลา</div>
+            <input type="hidden" name="start_time">
+            <input type="hidden" name="end_time">
+            <div id="slotList" class="d-flex flex-wrap gap-2 text-muted small">เลือกประเภทงานและวันที่ก่อน</div>
           </div>
         </div>
 
@@ -155,6 +128,13 @@ try {
           <input type="hidden" name="slip_path" id="slipPath">
           <input type="file" class="form-control soft-input" id="slipFile" accept="image/png,image/jpeg,image/webp">
           <div id="slipStatus" class="small mt-1"></div>
+        </div>
+
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="consent" required>
+          <label class="form-check-label small" for="consent">
+            ยินยอมให้ทางร้านเก็บชื่อ เบอร์โทร สถานที่ และสลิป เพื่อใช้จัดคิวและติดต่อเรื่องการจองนี้เท่านั้น
+          </label>
         </div>
 
         <div class="d-grid gap-2">
@@ -196,7 +176,7 @@ try {
         opt.value = s.id; opt.textContent = s.name;
         ss.appendChild(opt);
       });
-      ss.addEventListener('change', loadBusy);
+      ss.addEventListener('change', loadSlots);
       const cl = document.getElementById('categoryList');
       cl.innerHTML = CATEGORIES.map(c => {
         const color = c.color_hex || '#9ca3af';
@@ -222,6 +202,7 @@ try {
         cb.addEventListener('change', () => cb.closest('.select-card').classList.toggle('selected', cb.checked));
       });
       cl.querySelectorAll('input').forEach(cb => cb.addEventListener('change', onCategoryChange));
+      sl.querySelectorAll('input').forEach(cb => cb.addEventListener('change', updatePriceBox));
       updateServiceVisibility();
     });
 
@@ -255,12 +236,16 @@ try {
       // ป้ายจำนวน (ใช้ของประเภทแรกที่มี count_label)
       const withLabel = sel.find(c => c.count_label);
       document.getElementById('countLabel').textContent = withLabel ? withLabel.count_label : 'จำนวน';
-      // คำนวณเวลาจบจาก duration รวม ถ้ามีเวลาเริ่มแล้ว
-      const totalDur = sel.reduce((a, c) => a + (c.duration_min || 0), 0);
-      const startEl = document.querySelector('[name="start_time"]');
-      if (totalDur > 0 && startEl.value) setEndFromDuration(totalDur);
-      // ราคา/มัดจำประเมิน
-      const price = sel.reduce((a, c) => a + (c.price || 0), 0);
+      updatePriceBox();
+      loadSlots(); // เปลี่ยนประเภทงาน = ระยะเวลาเปลี่ยน ต้องคำนวณช่องเวลาใหม่
+    }
+
+    // ราคา/มัดจำประเมิน = ประเภทงาน + บริการเสริมที่เลือก
+    function updatePriceBox() {
+      const sel = selectedCategories();
+      const svcIds = Array.from(document.querySelectorAll('input[name="service_ids[]"]:checked')).map(cb => Number(cb.value));
+      const price = sel.reduce((a, c) => a + (c.price || 0), 0) +
+        SERVICES.filter(s => svcIds.includes(s.id)).reduce((a, s) => a + (s.price || 0), 0);
       const deposit = sel.reduce((a, c) => a + (c.deposit_default || 0), 0);
       const box = document.getElementById('priceBox');
       if (price > 0 || deposit > 0) {
@@ -273,38 +258,42 @@ try {
       }
     }
 
-    function setEndFromDuration(min) {
-      const start = document.querySelector('[name="start_time"]').value;
-      if (!start) return;
-      const [h, m] = start.split(':').map(Number);
-      const t = new Date(); t.setHours(h, m + min, 0, 0);
-      document.querySelector('[name="end_time"]').value =
-        String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
-    }
-
-    document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
-      document.querySelector('[name="start_time"]').value = b.dataset.start;
-      const dur = selectedCategories().reduce((a, c) => a + (c.duration_min || 0), 0);
-      if (dur > 0) setEndFromDuration(dur);
-    }));
-    document.querySelectorAll('[data-duration]').forEach(b => b.addEventListener('click', () => {
-      if (!document.querySelector('[name="start_time"]').value) { showToast('กรุณาเลือกเวลาเริ่มก่อน', 'danger'); return; }
-      setEndFromDuration(Number(b.dataset.duration));
-    }));
-
-    // โหลดช่วงเวลาที่ถูกจองเมื่อเปลี่ยนวัน
-    (() => { const d = document.querySelector('[name="appointment_date"]'); d.min = new Date().toISOString().slice(0, 10); })();
-    document.querySelector('[name="appointment_date"]').addEventListener('change', loadBusy);
-    function loadBusy() {
+    // โหลดช่องเวลาที่จองได้เมื่อเปลี่ยนวัน
+    (() => {
+      // ใช้วันที่ตามเวลาเครื่อง (toISOString เป็น UTC — ตี 0-7 จะได้วันก่อนหน้า)
+      const now = new Date();
+      document.querySelector('[name="appointment_date"]').min =
+        now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    })();
+    document.querySelector('[name="appointment_date"]').addEventListener('change', loadSlots);
+    function loadSlots() {
       const date = document.querySelector('[name="appointment_date"]').value;
-      const el = document.getElementById('busyList');
-      if (!date) { el.textContent = 'เลือกวันที่เพื่อดูคิวที่ถูกจอง'; return; }
+      const el = document.getElementById('slotList');
+      const startEl = document.querySelector('[name="start_time"]');
+      const endEl = document.querySelector('[name="end_time"]');
+      startEl.value = ''; endEl.value = '';
+      const cats = selectedCategories().map(c => c.id);
+      if (!date || cats.length === 0) { el.textContent = 'เลือกประเภทงานและวันที่ก่อน'; return; }
       const staff = document.getElementById('staffSelect').value;
-      const staffParam = staff ? ('&staff=' + staff) : '&staff=none';
-      fetch(API_BASE + '/availability.php?shop=' + encodeURIComponent(SHOP) + '&date=' + date + staffParam).then(r => r.json()).then(d => {
-        if (!d.busy || d.busy.length === 0) { el.innerHTML = '<span class="text-success">ช่วงนี้ยังว่าง 🎉</span>'; return; }
-        el.innerHTML = d.busy.map(b => '<span class="busy-chip">' + b.start + ' - ' + b.end + '</span>').join('');
-      }).catch(() => { el.textContent = 'โหลดข้อมูลคิวไม่สำเร็จ'; });
+      const q = new URLSearchParams({ shop: SHOP, date, staff: staff || 'none', categories: cats.join(',') });
+      el.textContent = 'กำลังโหลด...';
+      fetch(API_BASE + '/availability.php?' + q).then(r => r.json()).then(d => {
+        if (d.closed) { el.textContent = d.closed; return; }
+        if (!d.slots || d.slots.length === 0) { el.textContent = 'วันนี้ไม่มีช่วงเวลาว่าง กรุณาเลือกวันอื่น'; return; }
+        el.innerHTML = '';
+        d.slots.forEach(s => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'quick-btn';
+          b.textContent = s.start + ' - ' + s.end;
+          b.setAttribute('aria-pressed', 'false');
+          b.addEventListener('click', () => {
+            el.querySelectorAll('button').forEach(x => { x.classList.remove('slot-on'); x.setAttribute('aria-pressed', 'false'); });
+            b.classList.add('slot-on'); b.setAttribute('aria-pressed', 'true');
+            startEl.value = s.start; endEl.value = s.end;
+          });
+          el.appendChild(b);
+        });
+      }).catch(() => { el.textContent = 'โหลดช่องเวลาไม่สำเร็จ'; });
     }
 
     // ส่งคำขอจอง
@@ -315,7 +304,7 @@ try {
       if (categoryIds.length === 0) { showToast('กรุณาเลือกประเภทงานอย่างน้อย 1 ข้อ', 'danger'); return; }
       const serviceIds = Array.from(form.querySelectorAll('input[name="service_ids[]"]:checked')).map(cb => cb.value);
       const fd = new FormData(form);
-      if (fd.get('start_time') >= fd.get('end_time')) { showToast('เวลาเริ่มต้องน้อยกว่าเวลาจบ', 'danger'); return; }
+      if (!fd.get('start_time')) { showToast('กรุณาเลือกเวลา', 'danger'); return; }
 
       const payload = {
         customer_name: fd.get('customer_name'),
@@ -330,6 +319,7 @@ try {
         slip_path: fd.get('slip_path') || '',
         note: fd.get('note') || '',
         shop: SHOP,
+        consent: form.querySelector('#consent').checked ? 1 : 0,
         category_ids: categoryIds,
         service_ids: serviceIds,
       };
@@ -339,12 +329,11 @@ try {
         .then(({ ok, data }) => {
           if (!ok || data.error) {
             showToast(data.error || 'เกิดข้อผิดพลาด', 'danger');
-            if (data.conflict) loadBusy();
+            if (data.conflict) loadSlots();
             return;
           }
-          document.getElementById('formCard').classList.add('d-none');
-          document.getElementById('successCard').classList.remove('d-none');
-          window.scrollTo(0, 0);
+          // ไปหน้าติดตามคิว: ลูกค้าเห็นสถานะ QR มัดจำ และแนบสลิปได้
+          location.href = API_BASE.replace(/\/api$/, '') + '/track.php?c=' + data.token + '&new=1';
         })
         .catch(() => showToast('เกิดข้อผิดพลาดในการส่ง', 'danger'));
     });

@@ -241,9 +241,10 @@ $apiBase = $projectBase . '/api';
       catModal.hide(); loadCats();
     };
     async function delCat(id) {
-      if (!confirm('ลบประเภทงานนี้? คิวที่เคยใช้ประเภทนี้จะถูกถอดประเภทออก')) return;
+      if (!confirm('ลบประเภทงานนี้? ถ้ามีคิวเคยใช้แล้ว ระบบจะปิดใช้งานแทนเพื่อเก็บประวัติ')) return;
       const res = await fetch(API + '/categories.php?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': CSRF } }).then(r => r.json());
       if (res.error) { alert(res.error); return; }
+      if (res.deactivated) alert('มีคิวใช้ประเภทนี้อยู่ จึงปิดใช้งานแทนการลบ');
       loadCats();
     }
 
@@ -299,9 +300,10 @@ $apiBase = $projectBase . '/api';
       svcModal.hide(); loadSvcs();
     };
     async function delSvc(id) {
-      if (!confirm('ลบบริการนี้?')) return;
+      if (!confirm('ลบบริการนี้? ถ้ามีคิวเคยใช้แล้ว ระบบจะปิดใช้งานแทนเพื่อเก็บประวัติ')) return;
       const res = await fetch(API + '/services.php?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': CSRF } }).then(r => r.json());
       if (res.error) { alert(res.error); return; }
+      if (res.deactivated) alert('มีคิวใช้บริการนี้อยู่ จึงปิดใช้งานแทนการลบ');
       loadSvcs();
     }
 
@@ -353,9 +355,10 @@ $apiBase = $projectBase . '/api';
       staffModal.hide(); loadStaff();
     };
     async function delStaff(id) {
-      if (!confirm('ลบช่างคนนี้? งานที่เคยมอบให้ช่างนี้จะกลายเป็น "ไม่ระบุช่าง"')) return;
+      if (!confirm('ลบช่างคนนี้? ถ้าเคยมีงานแล้ว ระบบจะปิดใช้งานแทนเพื่อเก็บประวัติ')) return;
       const res = await fetch(API + '/staff.php?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': CSRF } }).then(r => r.json());
       if (res.error) { alert(res.error); return; }
+      if (res.deactivated) alert('ช่างคนนี้มีประวัติงาน จึงปิดใช้งานแทนการลบ');
       loadStaff();
     }
 

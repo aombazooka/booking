@@ -71,9 +71,10 @@ $apiBase = $base . '/api';
     <div class="row g-2 mb-3">
       <div class="col-6 col-lg-3"><div class="stat-card" style="background:#FBF3F4;"><div class="stat-value" id="sBookings">-</div><div class="stat-label">งานทั้งหมด (ไม่นับยกเลิก)</div></div></div>
       <div class="col-6 col-lg-3"><div class="stat-card" style="background:#F5F1E9;"><div class="stat-value" style="color:var(--rose-deep);" id="sRevenue">-</div><div class="stat-label">มูลค่างานรวม (บาท)</div></div></div>
-      <div class="col-6 col-lg-3"><div class="stat-card" style="background:#F7F2EC;"><div class="stat-value" id="sDeposit">-</div><div class="stat-label">มัดจำรวม (บาท)</div></div></div>
-      <div class="col-6 col-lg-3"><div class="stat-card" style="background:#FAF6F2;"><div class="stat-value" id="sCancelled">-</div><div class="stat-label">งานที่ยกเลิก</div></div></div>
+      <div class="col-6 col-lg-3"><div class="stat-card" style="background:#F7F2EC;"><div class="stat-value" id="sReceived">-</div><div class="stat-label">รับเงินแล้ว (บาท)</div></div></div>
+      <div class="col-6 col-lg-3"><div class="stat-card" style="background:#FAF6F2;"><div class="stat-value" id="sOutstanding">-</div><div class="stat-label">ค้างชำระ (บาท)</div></div></div>
     </div>
+    <div class="alert alert-warning py-2 small d-none" id="unpricedNote"></div>
 
     <div class="row g-3">
       <!-- กราฟรายเดือน -->
@@ -96,14 +97,15 @@ $apiBase = $base . '/api';
           <thead><tr class="text-muted"><th>ประเภทงาน</th><th class="text-end">จำนวนงาน</th><th class="text-end">มูลค่า (บาท)</th></tr></thead>
           <tbody id="catBody"><tr><td colspan="3" class="text-muted small">—</td></tr></tbody>
         </table></div>
-        <div class="text-muted" style="font-size:.8125rem">* งานที่เลือกหลายประเภทจะถูกนับในทุกประเภท</div>
+        <div class="text-muted" style="font-size:.8125rem">* งานหลายประเภทนับจำนวนในทุกประเภท แต่แบ่งมูลค่าเท่าๆ กัน</div>
       </div>
       <div class="card-soft p-3 mt-3">
         <h2 class="h6 fw-bold mb-2">งาน &amp; รายได้แยกตามช่าง</h2>
         <div class="table-responsive"><table class="table table-sm mb-0">
-          <thead><tr class="text-muted"><th>ช่าง</th><th class="text-end">จำนวนงาน</th><th class="text-end">มูลค่า (บาท)</th></tr></thead>
-          <tbody id="staffBody"><tr><td colspan="3" class="text-muted small">—</td></tr></tbody>
+          <thead><tr class="text-muted"><th>ช่าง</th><th class="text-end">จำนวนงาน</th><th class="text-end">มูลค่า (บาท)</th><th class="text-end">มัดจำจ่ายช่าง (บาท)</th></tr></thead>
+          <tbody id="staffBody"><tr><td colspan="4" class="text-muted small">—</td></tr></tbody>
         </table></div>
+        <div class="text-muted" style="font-size:.8125rem">* จำนวนงานรวมงานที่เป็นช่างเสริม ส่วนมูลค่าคิดให้ช่างหลักเท่านั้น ยอดจึงไม่ซ้ำ</div>
       </div></div>
       <!-- สถานะ + การจ่าย + ที่มา -->
       <div class="col-12 col-lg-5"><div class="card-soft p-3">
@@ -128,7 +130,10 @@ $apiBase = $base . '/api';
     const SRC_LABEL = { admin: 'ร้านบันทึกเอง', customer: 'ลูกค้าจองเอง' };
     let monthChart = null, catChart = null;
 
-    function fmtDate(d) { return d.toISOString().slice(0, 10); }
+    // ใช้วันที่ตามเวลาเครื่อง (toISOString เป็น UTC จะเลื่อนไปวันก่อนหน้า)
+    function fmtDate(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
 
     function setPreset(preset) {
       const now = new Date();
@@ -169,8 +174,11 @@ $apiBase = $base . '/api';
       document.getElementById('rangeLabel').textContent = data.range.start + ' ถึง ' + data.range.end;
       document.getElementById('sBookings').textContent = data.summary.total_bookings.toLocaleString('th-TH');
       document.getElementById('sRevenue').textContent = baht(data.summary.total_revenue);
-      document.getElementById('sDeposit').textContent = baht(data.summary.total_deposit);
-      document.getElementById('sCancelled').textContent = (data.by_status.cancelled || 0).toLocaleString('th-TH');
+      document.getElementById('sReceived').textContent = baht(data.summary.total_received);
+      document.getElementById('sOutstanding').textContent = baht(data.summary.total_outstanding);
+      const unpricedNote = document.getElementById('unpricedNote');
+      unpricedNote.classList.toggle('d-none', data.summary.unpriced === 0);
+      unpricedNote.textContent = 'มี ' + data.summary.unpriced + ' คิวที่ยังไม่ใส่ราคา จึงยังไม่รวมในยอดมูลค่าและค้างชำระ';
 
       // ตารางประเภทงาน
       const cb = document.getElementById('catBody');
@@ -193,10 +201,11 @@ $apiBase = $base . '/api';
       // ตารางช่าง
       const sb = document.getElementById('staffBody');
       sb.innerHTML = (data.by_staff.length === 0)
-        ? '<tr><td colspan="3" class="text-muted small">ไม่มีข้อมูลในช่วงนี้</td></tr>'
+        ? '<tr><td colspan="4" class="text-muted small">ไม่มีข้อมูลในช่วงนี้</td></tr>'
         : data.by_staff.map(s =>
             '<tr><td><span class="color-dot" style="background:' + esc(s.color_hex) + '"></span>' + esc(s.name) + '</td>' +
-            '<td class="text-end">' + s.cnt + '</td><td class="text-end">' + baht(s.revenue) + '</td></tr>'
+            '<td class="text-end">' + s.cnt + '</td><td class="text-end">' + baht(s.revenue) + '</td>' +
+            '<td class="text-end">' + (s.payout ? baht(s.payout) : '-') + '</td></tr>'
           ).join('');
 
       renderMonth(data.by_month);

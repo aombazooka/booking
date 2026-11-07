@@ -62,9 +62,12 @@ if ($actingShop > 0) {
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/monthly.php"><i class="bi bi-calendar2-week me-2"></i> สรุปคิวงานรายเดือน</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/auspicious.php"><i class="bi bi-stars me-2"></i> ปฏิทินวันฤกษ์</a></li>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/customers.php"><i class="bi bi-person-lines-fill me-2"></i> ลูกค้า</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/report.php"><i class="bi bi-graph-up me-2"></i> รายงานสรุป</a></li>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/expenses.php"><i class="bi bi-wallet2 me-2"></i> รายจ่ายและกำไร</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/admin/services.php"><i class="bi bi-gear me-2"></i> จัดการบริการ &amp; ช่าง</a></li>
-          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/telegram.php"><i class="bi bi-bell me-2"></i> แจ้งเตือน Telegram</a></li>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/settings.php"><i class="bi bi-shop me-2"></i> ตั้งค่าร้าน &amp; วันหยุด</a></li>
+          <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/telegram.php"><i class="bi bi-bell me-2"></i> แจ้งเตือน Telegram / LINE</a></li>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/account.php"><i class="bi bi-key me-2"></i> เปลี่ยนรหัสผ่าน</a></li>
           <?php if (isSuperAdmin()): ?>
           <li><a class="dropdown-item" href="<?= htmlspecialchars($base) ?>/admin/users.php"><i class="bi bi-people me-2"></i> จัดการผู้ใช้ / อนุมัติร้าน</a></li>
@@ -159,7 +162,12 @@ if ($actingShop > 0) {
     const btnToday = document.getElementById('btnToday');
     const btnCalendar = document.getElementById('btnCalendar');
 
-    let viewListDate = new Date().toISOString().slice(0, 10); // วันที่ที่กำลังแสดงในมุม "รายการ"
+    // วันที่ตามเวลาเครื่องผู้ใช้ (toISOString เป็น UTC — ตี 0-7 จะได้วันก่อนหน้า)
+    function localISO(d = new Date()) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    let viewListDate = localISO(); // วันที่ที่กำลังแสดงในมุม "รายการ"
 
     function formatThaiDate(isoDate) {
       const d = new Date(isoDate + 'T12:00:00');
@@ -167,7 +175,7 @@ if ($actingShop > 0) {
     }
 
     function isToday(isoDate) {
-      return isoDate === new Date().toISOString().slice(0, 10);
+      return isoDate === localISO();
     }
 
     function setListHeader(isoDate) {
@@ -190,7 +198,13 @@ if ($actingShop > 0) {
       return '<span class="status-pill" style="background:' + esc(color) + '">' + esc(statusLabel) + '</span>';
     }
 
-    function renderEventDetail(bookingId, p, timeRange) {
+    // โซเชียลที่เป็นลิงก์กดเปิดได้ ส่วนชื่อแสดงเป็นข้อความ
+    function socialHtml(value) {
+      const href = /^https?:\/\//i.test(value) ? value : (/^www\./i.test(value) ? 'https://' + value : null);
+      return href ? '<a target="_blank" rel="noopener noreferrer" href="' + esc(href) + '">เปิดลิงก์</a>' : esc(value);
+    }
+
+    function renderEventDetail(bookingId, p) {
       const phoneDigits = (p.customer_phone || '').replace(/[^0-9+]/g, '');
       const phone = p.customer_phone ? '<a href="tel:' + phoneDigits + '">' + esc(p.customer_phone) + '</a>' : '-';
       const mapHref = p.location ? (p.location.startsWith('http') ? p.location : 'https://www.google.com/maps?q=' + encodeURIComponent(p.location)) : null;
@@ -201,25 +215,69 @@ if ($actingShop > 0) {
         ? '<p><strong>ราคา:</strong> ' + money(p.price) + ' บาท' + (p.deposit ? ' (มัดจำ ' + money(p.deposit) + ')' : '') + '</p>' : '';
       const travelLine = (p.travel_fee !== null && p.travel_fee !== undefined && p.travel_fee !== '')
         ? '<p><strong>ค่าเดินทาง:</strong> ' + money(p.travel_fee) + ' บาท</p>' : '';
+      const hasPrice = p.price !== null && p.price !== undefined;
+      const balance = Math.max(0, Number(p.price || 0) + Number(p.travel_fee || 0) - Number(p.paid_total || 0));
+      const moneyLine = hasPrice
+        ? '<p><strong>รับแล้ว:</strong> ' + money(p.paid_total) + ' บาท · <strong>คงเหลือ:</strong> ' + money(balance) + ' บาท</p>'
+        : '<p class="text-warning-emphasis"><i class="bi bi-exclamation-circle"></i> ยังไม่ใส่ราคา' + (p.paid_total ? ' (รับแล้ว ' + money(p.paid_total) + ' บาท)' : '') + '</p>';
+      const holdLine = (p.status === 'new' && p.hold_until && !p.slip_path && p.payment_status === 'unpaid')
+        ? '<p class="text-warning-emphasis"><i class="bi bi-hourglass-split"></i> รอมัดจำถึง ' + esc(p.hold_until.slice(0, 16)) + '</p>' : '';
+      const canConfirm = p.payment_status === 'unpaid' && Number(p.deposit) > 0 && p.status !== 'cancelled';
+      // ช่างที่รับงาน: ช่างหลัก + ช่างเสริม พร้อมมัดจำที่จ่ายให้แต่ละคนและสลิปของคนนั้น
+      const slipBtn = f => ' <a href="' + base + '/api/slip.php?file=' + encodeURIComponent(f) + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary"><i class="bi bi-receipt"></i> ดูสลิป</a>';
+      const staffList = Array.isArray(p.staff_list) ? p.staff_list : [];
+      const staffLine = staffList.length
+        ? '<p class="mb-1"><strong>ช่าง:</strong></p><ul class="list-unstyled ms-2 mb-3">' + staffList.map(s =>
+            '<li class="mb-1">' + (s.role === 'main' ? '<i class="bi bi-star-fill text-warning"></i> ' : '<i class="bi bi-person"></i> ') +
+            esc(s.name) + (s.role === 'main' ? ' <span class="text-muted small">(ช่างหลัก)</span>' : '') +
+            (s.deposit_paid ? ' <span class="text-muted small">• มัดจำจ่าย ' + money(s.deposit_paid) + ' บาท</span>' : '') +
+            (s.slip_path ? slipBtn(s.slip_path) : '') + '</li>').join('') + '</ul>'
+        : '<p><strong>ช่าง:</strong> ' + esc(p.staff_name || 'ไม่ระบุ') + '</p>';
       document.getElementById('eventDetail').innerHTML =
         '<div class="mb-2">' + statusPill(p.status_label || 'ใหม่', p.status_color || '#93c5fd') + sourceBadge + '</div>' +
-        '<p><strong>เวลา:</strong> ' + esc(timeRange || '-') + '</p>' +
+        '<p><strong>เวลา:</strong> ' + esc(p.time_label || '-') + '</p>' +
         '<p><strong>ลูกค้า:</strong> ' + esc(p.customer_name || '-') + '</p>' +
         '<p><strong>โทร:</strong> ' + phone + '</p>' +
+        (p.social ? '<p><strong>โซเชียล:</strong> ' + socialHtml(p.social) + '</p>' : '') +
         '<p><strong>ประเภท:</strong> ' + esc(p.category_names || '-') + '</p>' +
-        '<p><strong>ช่าง:</strong> ' + esc(p.staff_name || 'ไม่ระบุ') + '</p>' +
+        staffLine +
         '<p><strong>จำนวน:</strong> ' + esc(p.num_people || 1) + ' ' + esc(p.count_unit || 'คน') + '</p>' +
         priceLine +
         travelLine +
+        moneyLine +
+        holdLine +
         '<p><strong>การจ่าย:</strong> ' + esc(p.payment_label || '-') +
           (p.slip_path ? ' <a href="' + base + '/api/slip.php?file=' + encodeURIComponent(p.slip_path) + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary ms-2"><i class="bi bi-receipt"></i> ดูสลิป</a>' : '') + '</p>' +
         '<p><strong>สถานที่:</strong> ' + (mapHref ? '<a target="_blank" rel="noopener" href="' + esc(mapHref) + '">เปิดแผนที่</a>' : '-') + '</p>' +
         (p.note ? '<p><strong>หมายเหตุ:</strong> ' + esc(p.note) + '</p>' : '') +
         '<div class="d-flex gap-2 mt-3 pt-3 border-top">' +
           '<a href="' + base + '/form.php?id=' + bookingId + '" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil"></i> แก้ไข</a>' +
+          (p.public_token ? '<button type="button" class="btn btn-outline-secondary btn-sm" id="btnCopyTrack"><i class="bi bi-link-45deg"></i> ลิงก์ลูกค้า</button>' : '') +
           '<button type="button" class="btn btn-outline-danger btn-sm" id="btnDeleteBooking" data-id="' + bookingId + '"><i class="bi bi-trash"></i> ลบ</button>' +
-        '</div>';
+        '</div>' +
+        (canConfirm ? '<div class="d-grid mt-2"><button type="button" class="btn btn-sm btn-dark" id="btnConfirmDeposit"><i class="bi bi-check2-circle"></i> ยืนยันรับมัดจำ ' + money(p.deposit) + ' บาท และยืนยันคิว</button></div>' : '');
       eventModal.show();
+      const btnCopy = document.getElementById('btnCopyTrack');
+      if (btnCopy) {
+        btnCopy.onclick = async () => {
+          const url = location.origin + base + '/track.php?c=' + p.public_token;
+          try { await navigator.clipboard.writeText(url); btnCopy.textContent = 'คัดลอกแล้ว'; } catch (e) { prompt('คัดลอกลิงก์นี้', url); }
+        };
+      }
+      const btnConfirm = document.getElementById('btnConfirmDeposit');
+      if (btnConfirm) {
+        btnConfirm.onclick = () => {
+          fetch(API_BASE + '/payments.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+            body: JSON.stringify({ booking_id: Number(bookingId), kind: 'deposit', amount: p.deposit, method: 'transfer', confirm: 1 }),
+          }).then(r => r.json()).then(data => {
+            if (data.error) { alert(data.error); return; }
+            eventModal.hide();
+            loadListForDate(viewListDate);
+            calendar.refetchEvents();
+          }).catch(() => alert('บันทึกไม่สำเร็จ'));
+        };
+      }
       const btnDel = document.getElementById('btnDeleteBooking');
       if (btnDel) {
         btnDel.onclick = function() {
@@ -302,7 +360,7 @@ if ($actingShop > 0) {
           todayList.querySelectorAll('button[data-id]').forEach((btn, idx) => {
             btn.addEventListener('click', () => {
               const item = rows[idx];
-              renderEventDetail(item.id, {...item.extendedProps, status_color: item.color}, item.time);
+              renderEventDetail(item.id, {...item.extendedProps, status_color: item.color});
             });
           });
         })
@@ -312,7 +370,7 @@ if ($actingShop > 0) {
     }
 
     function loadTodayList() {
-      loadListForDate(new Date().toISOString().slice(0, 10));
+      loadListForDate(localISO());
     }
 
     const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
@@ -339,9 +397,7 @@ if ($actingShop > 0) {
       },
       eventClick(info) {
         const p = info.event.extendedProps;
-        const timeRange = info.event.start.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'}) +
-          ' - ' + info.event.end.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
-        renderEventDetail(info.event.id, {...p, status_color: info.event.backgroundColor}, timeRange);
+        renderEventDetail(info.event.id, {...p, status_color: info.event.backgroundColor});
       }
     });
     calendar.render();

@@ -2,6 +2,7 @@
 /**
  * ระบบ login หลังบ้าน (admin) — ใช้ session + password_hash
  */
+require_once __DIR__ . '/bootstrap.php';
 
 function startSession(): void
 {
@@ -66,7 +67,34 @@ function requireCsrf(): void
 function isLoggedIn(): bool
 {
     startSession();
-    return !empty($_SESSION['admin_user_id']);
+    return !empty($_SESSION['admin_user_id']) && sessionUserStillActive();
+}
+
+/**
+ * ตรวจบัญชีใน session กับฐานข้อมูล (ครั้งเดียวต่อ request) — บัญชีที่ถูกระงับ/ลบจะหลุดจากระบบทันที
+ * และอัปเดต role ให้ตรงกับฐานข้อมูลเสมอ (ไม่ใช้ค่าที่ค้างใน session ตอน login)
+ */
+function sessionUserStillActive(): bool
+{
+    static $active = null;
+    if ($active !== null) {
+        return $active;
+    }
+    try {
+        $pdo = require __DIR__ . '/db.php';
+        $stmt = $pdo->prepare("SELECT role, status FROM app_users WHERE id = ?");
+        $stmt->execute([(int) $_SESSION['admin_user_id']]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        // ฐานข้อมูลล่ม: ไม่เตะผู้ใช้ออก ปล่อยให้แต่ละหน้าแจ้ง error ของตัวเอง
+        return $active = true;
+    }
+    if (!$user || $user['status'] !== 'active') {
+        logout();
+        return $active = false;
+    }
+    $_SESSION['admin_role'] = $user['role'];
+    return $active = true;
 }
 
 function currentUsername(): string

@@ -16,15 +16,12 @@ try {
     exit;
 }
 
-// เจ้าของข้อมูล: admin = ตัวเอง, สาธารณะ = ร้านจาก ?shop=slug
-if (isLoggedIn()) {
-    $owner = ownerId();
-} else {
-    $owner = resolveShopOwner($pdo, (string) ($_GET['shop'] ?? ''));
-    if (!$owner) {
-        echo json_encode(['categories' => [], 'services' => [], 'staff' => [], 'error' => 'ไม่พบร้าน']);
-        exit;
-    }
+// เจ้าของข้อมูล: ?shop=slug = ร้านนั้นเสมอ, ไม่ส่ง shop = ร้านของผู้ที่ล็อกอิน
+$shopSlug = (string) ($_GET['shop'] ?? '');
+$owner = ($shopSlug === '' && isLoggedIn()) ? ownerId() : resolveShopOwner($pdo, $shopSlug);
+if (!$owner) {
+    echo json_encode(['categories' => [], 'services' => [], 'staff' => [], 'error' => 'ไม่พบร้าน']);
+    exit;
 }
 
 $cs = $pdo->prepare("

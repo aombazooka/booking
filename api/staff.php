@@ -91,7 +91,14 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         echo json_encode(['error' => 'ต้องการ id']);
         exit;
     }
-    // ลบช่าง → งานที่เคยผูกจะกลายเป็น "ไม่ระบุช่าง" (FK ON DELETE SET NULL)
+    // ช่างที่มีประวัติงานแล้วห้ามลบจริง (ประวัติ/มัดจำจ่ายช่างจะหาย) — ปิดใช้งานแทน
+    $used = $pdo->prepare("SELECT EXISTS (SELECT 1 FROM bookings WHERE staff_id = ?) OR EXISTS (SELECT 1 FROM booking_staff WHERE staff_id = ?)");
+    $used->execute([$id, $id]);
+    if ($used->fetchColumn()) {
+        $pdo->prepare("UPDATE staff SET is_active = 0 WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
+        echo json_encode(['success' => true, 'deactivated' => true]);
+        exit;
+    }
     $pdo->prepare("DELETE FROM staff WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;

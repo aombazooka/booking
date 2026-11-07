@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/app/auth.php';
+require __DIR__ . '/app/booking_helpers.php';
 requireLogin();
 $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
 $apiBase = $base . '/api';
@@ -7,7 +8,10 @@ $editId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $booking = null;
 $categories = [];
 $services = [];
+$staffList = [];
+$bookingStaff = []; // ช่างที่รับงานในคิวนี้ (ช่างหลักมาก่อน) — ใช้เติมแถวช่างในฟอร์ม
 $dbError = '';
+$timeExact = true; // คิวที่มีแค่แท็กช่วงเวลา: เว้นช่องเวลาว่างไว้ ไม่แสดงเวลาที่ระบบคำนวณเอง
 
 try {
   $pdo = require __DIR__ . '/app/db.php';
@@ -15,24 +19,31 @@ try {
     throw new RuntimeException('Database not configured');
   }
   $owner = ownerId();
-  $q = $pdo->prepare("SELECT id, name, color_hex, count_label, duration_min, price, deposit_default FROM booking_categories WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id");
-  $q->execute([$owner]);
+  // โหลดรายการที่เปิดใช้งาน + รายการที่ปิดไปแล้วแต่คิวนี้ใช้อยู่ (ไม่งั้นกดบันทึกแล้วข้อมูลเดิมของคิวจะหาย)
+  $q = $pdo->prepare("SELECT id, name, color_hex, count_label, duration_min, price, deposit_default FROM booking_categories
+                      WHERE user_id = ? AND (is_active = 1 OR id IN (SELECT category_id FROM booking_category_pivot WHERE booking_id = ?))
+                      ORDER BY sort_order, id");
+  $q->execute([$owner, $editId]);
   $categories = $q->fetchAll(PDO::FETCH_ASSOC);
   $q = $pdo->prepare("
     SELECT s.id, s.name, s.price,
            (SELECT GROUP_CONCAT(l.category_id) FROM service_category_link l WHERE l.service_id = s.id) AS category_ids
-    FROM booking_services s WHERE s.user_id = ? AND s.is_active = 1 ORDER BY s.sort_order, s.id
+    FROM booking_services s
+    WHERE s.user_id = ? AND (s.is_active = 1 OR s.id IN (SELECT service_id FROM booking_service_pivot WHERE booking_id = ?))
+    ORDER BY s.sort_order, s.id
   ");
-  $q->execute([$owner]);
+  $q->execute([$owner, $editId]);
   $services = $q->fetchAll(PDO::FETCH_ASSOC);
-  $q = $pdo->prepare("SELECT id, name FROM staff WHERE user_id = ? AND is_active = 1 ORDER BY sort_order, id");
-  $q->execute([$owner]);
+  $q = $pdo->prepare("SELECT id, name FROM staff
+                      WHERE user_id = ? AND (is_active = 1 OR id IN (SELECT staff_id FROM booking_staff WHERE booking_id = ?))
+                      ORDER BY sort_order, id");
+  $q->execute([$owner, $editId]);
   $staffList = $q->fetchAll(PDO::FETCH_ASSOC);
 
   if ($editId > 0) {
     $stmt = $pdo->prepare("
-      SELECT b.id, b.customer_name, b.customer_phone, b.location, b.appointment_date, b.start_time, b.end_time, b.num_people,
-             b.price, b.deposit, b.payment_status, b.slip_path, b.staff_id, b.status, b.note,
+      SELECT b.id, b.customer_name, b.customer_phone, b.social, b.location, b.appointment_date, b.start_time, b.end_time, b.time_slot, b.time_exact, b.num_people,
+             b.price, b.deposit, b.travel_fee, b.payment_status, b.slip_path, b.staff_id, b.status, b.note,
              (SELECT GROUP_CONCAT(p.category_id) FROM booking_category_pivot p WHERE p.booking_id = b.id) AS category_ids,
              (SELECT GROUP_CONCAT(p.service_id) FROM booking_service_pivot p WHERE p.booking_id = b.id) AS service_ids
       FROM bookings b WHERE b.id = ? AND b.user_id = ?
@@ -40,8 +51,17 @@ try {
     $stmt->execute([$editId, $owner]);
     $booking = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($booking) {
+      $timeExact = (int) $booking['time_exact'] === 1;
       $booking['category_ids'] = $booking['category_ids'] ? array_map('intval', explode(',', $booking['category_ids'])) : [];
       $booking['service_ids'] = $booking['service_ids'] ? array_map('intval', explode(',', $booking['service_ids'])) : [];
+      $ss = $pdo->prepare("SELECT staff_id, role, deposit_paid, slip_path FROM booking_staff
+                           WHERE booking_id = ? ORDER BY (role = 'main') DESC, sort_order, id");
+      $ss->execute([$editId]);
+      $bookingStaff = $ss->fetchAll(PDO::FETCH_ASSOC);
+      // คิวเก่าที่บันทึกไว้ก่อนมีตาราง booking_staff → ใช้ staff_id เดิมเป็นช่างหลัก
+      if (!$bookingStaff && !empty($booking['staff_id'])) {
+        $bookingStaff = [['staff_id' => (int)$booking['staff_id'], 'role' => 'main', 'deposit_paid' => null, 'slip_path' => null]];
+      }
     } else {
       $booking = null;
     }
@@ -89,7 +109,8 @@ try {
         <div class="mb-3">
           <label class="form-label section-title">ข้อมูลลูกค้า</label>
           <input type="text" class="form-control soft-input mb-2" name="customer_name" required placeholder="ชื่อ-นามสกุล" value="<?= $booking ? htmlspecialchars($booking['customer_name'] ?? '') : '' ?>">
-          <input type="tel" class="form-control soft-input" name="customer_phone" required placeholder="เบอร์โทรศัพท์" value="<?= $booking ? htmlspecialchars($booking['customer_phone'] ?? '') : '' ?>">
+          <input type="tel" class="form-control soft-input mb-2" name="customer_phone" required placeholder="เบอร์โทรศัพท์" value="<?= $booking ? htmlspecialchars($booking['customer_phone'] ?? '') : '' ?>">
+          <input type="text" class="form-control soft-input" name="social" maxlength="500" placeholder="โซเชียล: ใส่ชื่อ หรือวางลิงก์ Facebook / LINE / IG" aria-label="ช่องทางโซเชียล" value="<?= $booking ? htmlspecialchars($booking['social'] ?? '') : '' ?>">
         </div>
         <div class="mb-3">
           <label class="form-label section-title">สถานที่ <span class="title-hint">พิมพ์ที่อยู่ หรือปักหมุดบนแผนที่</span></label>
@@ -145,15 +166,16 @@ try {
               ?><option value="<?= $v ?>"<?= $st === $v ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?>
             </select>
           </div>
-          <div class="col-6 mb-3">
-            <label class="form-label section-title">ช่างที่รับงาน</label>
-            <select name="staff_id" class="form-select soft-input">
-              <option value="">ไม่ระบุช่าง</option>
-              <?php
-              $selStaff = $booking['staff_id'] ?? null;
-              foreach ($staffList as $sf):
-              ?><option value="<?= (int)$sf['id'] ?>"<?= ((int)$selStaff === (int)$sf['id']) ? ' selected' : '' ?>><?= htmlspecialchars($sf['name']) ?></option><?php endforeach; ?>
-            </select>
+        </div>
+
+        <!-- ช่างที่รับงาน: แถวแรก = ช่างหลัก, กด + เพิ่มช่างเสริมได้ไม่จำกัด
+             มัดจำ/สลิปในบล็อกนี้ = เงินที่ "จ่ายออก" ให้ช่าง คนละก้อนกับมัดจำที่ลูกค้าโอนเข้ามาด้านล่าง -->
+        <div class="mb-3">
+          <label class="form-label section-title">ช่างที่รับงาน <span class="title-hint">คนแรก = ช่างหลัก • กดปุ่ม + เพื่อเพิ่มช่างอื่น</span></label>
+          <div id="staffRows"></div>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+            <button type="button" class="quick-btn" id="staffAdd"><i class="bi bi-plus-lg"></i> เพิ่มช่าง</button>
+            <div class="small text-muted" id="staffTotal"></div>
           </div>
         </div>
 
@@ -163,13 +185,14 @@ try {
             <input type="number" step="0.01" min="0" class="form-control soft-input" name="price" placeholder="-" value="<?= $booking && $booking['price'] !== null ? htmlspecialchars($booking['price']) : '' ?>">
           </div>
           <div class="col-6 col-md-3 mb-3">
-            <label class="form-label section-title">มัดจำ (บาท)</label>
+            <label class="form-label section-title">มัดจำจากลูกค้า (บาท)</label>
             <input type="number" step="0.01" min="0" class="form-control soft-input" name="deposit" placeholder="0" value="<?= $booking && isset($booking['deposit']) ? htmlspecialchars($booking['deposit']) : '' ?>">
           </div>
           <div class="col-6 col-md-3 mb-3">
             <label class="form-label section-title">ค่าเดินทาง (บาท)</label>
             <input type="number" step="0.01" min="0" class="form-control soft-input" name="travel_fee" placeholder="-" value="<?= $booking && isset($booking['travel_fee']) && $booking['travel_fee'] !== null ? htmlspecialchars($booking['travel_fee']) : '' ?>">
           </div>
+          <?php if (!$editId): ?>
           <div class="col-6 col-md-3 mb-3">
             <label class="form-label section-title">การจ่าย</label>
             <select name="payment_status" class="form-select soft-input">
@@ -179,10 +202,39 @@ try {
               ?><option value="<?= $v ?>"<?= $ps === $v ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?>
             </select>
           </div>
+          <?php endif; ?>
         </div>
 
+        <?php if ($editId): ?>
+        <!-- รับเงินรายรายการ: สถานะการจ่ายคำนวณจากรายการเหล่านี้ และบันทึกทันทีไม่ต้องกดบันทึกคิว -->
+        <div class="mb-3" id="payBlock">
+          <label class="form-label section-title">การรับเงิน</label>
+          <div id="paySummary" class="small mb-2"></div>
+          <div id="payRows" class="small mb-2"></div>
+          <div class="row g-2">
+            <div class="col-6 col-md-3">
+              <select id="payKind" class="form-select soft-input" aria-label="ประเภทรายการ">
+                <option value="deposit">มัดจำ</option>
+                <option value="balance">ส่วนที่เหลือ</option>
+                <option value="refund">คืนเงิน</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-3"><input type="number" step="0.01" min="0" id="payAmount" class="form-control soft-input" placeholder="จำนวนเงิน" aria-label="จำนวนเงิน"></div>
+            <div class="col-6 col-md-2">
+              <select id="payMethod" class="form-select soft-input" aria-label="ช่องทาง">
+                <option value="transfer">โอน</option>
+                <option value="cash">เงินสด</option>
+                <option value="other">อื่นๆ</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2"><input type="date" id="payDate" class="form-control soft-input" value="<?= date('Y-m-d') ?>" aria-label="วันที่รับเงิน"></div>
+            <div class="col-12 col-md-2 d-grid"><button type="button" class="quick-btn" id="payAdd"><i class="bi bi-plus-lg"></i> เพิ่ม</button></div>
+          </div>
+        </div>
+        <?php endif; ?>
+
         <div class="mb-3">
-          <label class="form-label section-title">สลิปมัดจำ</label>
+          <label class="form-label section-title">สลิปมัดจำจากลูกค้า</label>
           <?php $curSlip = $booking['slip_path'] ?? ''; ?>
           <input type="hidden" name="slip_path" id="slipPath" value="<?= htmlspecialchars($curSlip) ?>">
           <div id="slipCurrent" class="mb-2<?= $curSlip ? '' : ' d-none' ?>">
@@ -199,12 +251,22 @@ try {
             <input type="date" class="form-control soft-input" name="appointment_date" required value="<?= $booking ? htmlspecialchars($booking['appointment_date'] ?? '') : '' ?>">
           </div>
           <div class="col-6 mb-3">
-            <label class="form-label section-title">เวลาเริ่ม</label>
-            <input type="time" class="form-control soft-input" name="start_time" required value="<?= $booking && !empty($booking['start_time']) ? date('H:i', strtotime($booking['start_time'])) : '' ?>">
+            <label class="form-label section-title">เวลาเริ่ม <span class="title-hint">ไม่บังคับ</span></label>
+            <input type="time" class="form-control soft-input" name="start_time" value="<?= $timeExact && $booking && !empty($booking['start_time']) ? date('H:i', strtotime($booking['start_time'])) : '' ?>">
           </div>
           <div class="col-6 mb-3">
-            <label class="form-label section-title">เวลาจบ</label>
-            <input type="time" class="form-control soft-input" name="end_time" required value="<?= $booking && !empty($booking['end_time']) ? date('H:i', strtotime($booking['end_time'])) : '' ?>">
+            <label class="form-label section-title">เวลาจบ <span class="title-hint">ไม่บังคับ</span></label>
+            <input type="time" class="form-control soft-input" name="end_time" value="<?= $timeExact && $booking && !empty($booking['end_time']) ? date('H:i', strtotime($booking['end_time'])) : '' ?>">
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="section-title">ช่วงเวลา <span class="title-hint">ถ้าไม่ใส่เวลา ระบบใช้ช่วงนี้ตรวจคิวชน</span></div>
+          <input type="hidden" name="time_slot" id="timeSlot" value="<?= htmlspecialchars($booking['time_slot'] ?? '') ?>">
+          <div class="d-flex flex-wrap gap-2" id="timeSlotBtns">
+            <?php foreach (TIME_SLOTS as $key => $slot): ?>
+            <button type="button" class="quick-btn<?= ($booking['time_slot'] ?? '') === $key ? ' slot-on' : '' ?>" data-slot="<?= $key ?>" aria-pressed="<?= ($booking['time_slot'] ?? '') === $key ? 'true' : 'false' ?>"><?= htmlspecialchars($slot['label']) ?></button>
+            <?php endforeach; ?>
           </div>
         </div>
 
@@ -254,6 +316,8 @@ try {
     const API_BASE = <?= json_encode($apiBase) ?>;
     const base = <?= json_encode($base) ?>;
     const CSRF = <?= json_encode(csrfToken()) ?>;
+    const STAFF_OPTIONS = <?= json_encode($staffList, JSON_UNESCAPED_UNICODE) ?>;
+    const STAFF_INIT = <?= json_encode($bookingStaff, JSON_UNESCAPED_UNICODE) ?>;
 
     document.querySelectorAll('[data-start]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -275,6 +339,20 @@ try {
         const hh = String(t.getHours()).padStart(2, '0');
         const mm = String(t.getMinutes()).padStart(2, '0');
         document.querySelector('[name="end_time"]').value = hh + ':' + mm;
+      });
+    });
+
+    // แท็กช่วงเวลา: เลือกได้ทีละแท็ก กดซ้ำเพื่อเอาออก
+    document.querySelectorAll('#timeSlotBtns [data-slot]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const turnOn = !btn.classList.contains('slot-on');
+        document.querySelectorAll('#timeSlotBtns [data-slot]').forEach(b => {
+          b.classList.remove('slot-on');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        btn.classList.toggle('slot-on', turnOn);
+        btn.setAttribute('aria-pressed', turnOn ? 'true' : 'false');
+        document.getElementById('timeSlot').value = turnOn ? btn.dataset.slot : '';
       });
     });
 
@@ -308,6 +386,117 @@ try {
     document.querySelectorAll('.cat-check').forEach(cb => cb.addEventListener('change', onCatChange));
     onCatChange();
 
+    // ---------- ช่างที่รับงาน: ช่างหลัก + ช่างเสริม (มัดจำจ่ายช่าง/สลิป รายคน) ----------
+    let collectStaff = () => [];
+    (function staffPicker() {
+      const wrap = document.getElementById('staffRows');
+      const addBtn = document.getElementById('staffAdd');
+      const totalEl = document.getElementById('staffTotal');
+      const esc = s => String(s === null || s === undefined ? '' : s)
+        .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const money = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+
+      function optionsHtml(selected) {
+        return '<option value="">— เลือกช่าง —</option>' + STAFF_OPTIONS.map(s =>
+          '<option value="' + s.id + '"' + (Number(selected) === Number(s.id) ? ' selected' : '') + '>' + esc(s.name) + '</option>'
+        ).join('');
+      }
+
+      function addRow(data) {
+        data = data || {};
+        const row = document.createElement('div');
+        row.className = 'staff-row';
+        row.dataset.slip = data.slip_path || '';
+        row.innerHTML =
+          '<div class="staff-row-top">' +
+            '<span class="staff-tag"></span>' +
+            '<button type="button" class="staff-remove" title="ลบช่างคนนี้"><i class="bi bi-trash"></i></button>' +
+          '</div>' +
+          '<div class="row g-2">' +
+            '<div class="col-12 col-md-5"><select class="form-select soft-input staff-select">' + optionsHtml(data.staff_id) + '</select></div>' +
+            '<div class="col-7 col-md-4"><input type="number" step="0.01" min="0" class="form-control soft-input staff-deposit" placeholder="มัดจำจ่ายช่าง (บาท)" value="' + esc(data.deposit_paid === null ? '' : data.deposit_paid) + '"></div>' +
+            '<div class="col-5 col-md-3">' +
+              '<label class="quick-btn staff-slip-btn w-100"><i class="bi bi-paperclip"></i> เพิ่มสลิป' +
+                '<input type="file" class="d-none staff-slip-file" accept="image/png,image/jpeg,image/webp">' +
+              '</label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="staff-slip-state small mt-1"></div>';
+        wrap.appendChild(row);
+        bindRow(row);
+        paintSlip(row);
+        renumber();
+        return row;
+      }
+
+      // แสดงสถานะสลิปของแถวนี้: มีไฟล์แล้ว = ปุ่มดู/ลบ, ยังไม่มี = ว่าง
+      function paintSlip(row, msg) {
+        const state = row.querySelector('.staff-slip-state');
+        const file = row.dataset.slip;
+        if (msg) { state.innerHTML = msg; return; }
+        state.innerHTML = file
+          ? '<a href="' + base + '/api/slip.php?file=' + encodeURIComponent(file) + '" target="_blank" rel="noopener" class="btn btn-sm btn-light border"><i class="bi bi-receipt"></i> ดูสลิป</a>' +
+            ' <button type="button" class="btn btn-sm btn-light border text-danger staff-slip-remove"><i class="bi bi-x-lg"></i> ลบสลิป</button>'
+          : '';
+      }
+
+      function bindRow(row) {
+        row.querySelector('.staff-remove').addEventListener('click', () => { row.remove(); renumber(); });
+        row.querySelector('.staff-deposit').addEventListener('input', renumber);
+        row.querySelector('.staff-slip-file').addEventListener('change', function () {
+          const file = this.files[0];
+          if (!file) return;
+          if (file.size > 5 * 1024 * 1024) { paintSlip(row, '<span class="text-danger">ไฟล์ใหญ่เกิน 5MB</span>'); this.value = ''; return; }
+          paintSlip(row, '<span class="text-muted">กำลังอัปโหลด...</span>');
+          const f = new FormData(); f.append('slip', file);
+          fetch(API_BASE + '/upload_slip.php', { method: 'POST', body: f })
+            .then(r => r.json())
+            .then(d => {
+              if (d.error || !d.file) { paintSlip(row, '<span class="text-danger">' + esc(d.error || 'อัปโหลดไม่สำเร็จ') + '</span>'); return; }
+              row.dataset.slip = d.file;
+              paintSlip(row);
+            })
+            .catch(() => paintSlip(row, '<span class="text-danger">อัปโหลดไม่สำเร็จ</span>'));
+          this.value = '';
+        });
+        // ปุ่มลบสลิปถูกสร้างทีหลัง → ใช้ event delegation ที่ตัวแถว
+        row.addEventListener('click', e => {
+          if (!e.target.closest('.staff-slip-remove')) return;
+          row.dataset.slip = '';
+          paintSlip(row, '<span class="text-muted">นำสลิปออกแล้ว (กดบันทึกเพื่อยืนยัน)</span>');
+        });
+      }
+
+      // แถวแรกเป็นช่างหลักเสมอ (ลบไม่ได้) + รวมยอดมัดจำจ่ายช่าง
+      function renumber() {
+        const rows = Array.from(wrap.querySelectorAll('.staff-row'));
+        if (rows.length === 0) { addRow({}); return; }
+        let total = 0;
+        rows.forEach((row, i) => {
+          row.classList.toggle('is-main', i === 0);
+          row.querySelector('.staff-tag').innerHTML = i === 0
+            ? '<i class="bi bi-star-fill"></i> ช่างหลัก'
+            : 'ช่างเสริม';
+          row.querySelector('.staff-remove').style.display = i === 0 ? 'none' : '';
+          total += parseFloat(row.querySelector('.staff-deposit').value) || 0;
+        });
+        totalEl.textContent = total > 0 ? 'รวมมัดจำจ่ายช่าง ' + money(total) + ' บาท' : '';
+      }
+
+      addBtn.addEventListener('click', () => {
+        if (wrap.querySelectorAll('.staff-row').length >= 20) { showToast('เพิ่มช่างได้สูงสุด 20 คนต่อคิว', 'danger'); return; }
+        addRow({});
+      });
+
+      collectStaff = () => Array.from(wrap.querySelectorAll('.staff-row')).map(row => ({
+        staff_id: row.querySelector('.staff-select').value,
+        deposit_paid: row.querySelector('.staff-deposit').value,
+        slip_path: row.dataset.slip || '',
+      })).filter(r => r.staff_id);
+
+      (STAFF_INIT.length ? STAFF_INIT : [{}]).forEach(addRow);
+    })();
+
     function buildPayload(force) {
       const form = document.getElementById('bookingForm');
       const fd = new FormData(form);
@@ -317,16 +506,18 @@ try {
       const payload = {
         customer_name: fd.get('customer_name'),
         customer_phone: fd.get('customer_phone'),
+        social: fd.get('social') || '',
         location: fd.get('location') || '',
         appointment_date: fd.get('appointment_date'),
         start_time: fd.get('start_time'),
         end_time: fd.get('end_time'),
+        time_slot: fd.get('time_slot') || '',
         num_people: parseInt(fd.get('num_people') || 1, 10) || 1,
         price: fd.get('price') || '',
         deposit: fd.get('deposit') || '',
         travel_fee: fd.get('travel_fee') || '',
         payment_status: fd.get('payment_status') || 'unpaid',
-        staff_id: fd.get('staff_id') || '',
+        staff: collectStaff(), // ลำดับแรก = ช่างหลัก (server เอาไปลง bookings.staff_id ให้)
         slip_path: fd.get('slip_path') || '',
         status: fd.get('status') || 'new',
         note: fd.get('note') || '',
@@ -344,6 +535,11 @@ try {
         showToast('กรุณาเลือกประเภทงานอย่างน้อย 1 ข้อ', 'danger');
         return;
       }
+      const staffIds = payload.staff.map(s => String(s.staff_id));
+      if (new Set(staffIds).size !== staffIds.length) {
+        showToast('มีช่างซ้ำกัน กรุณาเลือกช่างคนละคนในแต่ละแถว', 'danger');
+        return;
+      }
       const method = id > 0 ? 'PUT' : 'POST';
       fetch(API_BASE + '/bookings.php', {
         method, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF }, body: JSON.stringify(payload),
@@ -353,7 +549,7 @@ try {
           if (status === 409 && data.conflict) {
             let msg = 'ช่วงเวลานี้ชนกับคิวอื่น';
             if (Array.isArray(data.conflicts)) {
-              msg += ':\n' + data.conflicts.map(c => '• ' + c.start_time.slice(0,5) + '-' + c.end_time.slice(0,5) + ' ' + c.customer_name).join('\n');
+              msg += ':\n' + data.conflicts.map(c => '• ' + c.time_label + ' ' + c.customer_name).join('\n');
             }
             if (confirm(msg + '\n\nต้องการบันทึกทับคิวนี้หรือไม่?')) submitBooking(true);
             return;
@@ -399,6 +595,54 @@ try {
         pathEl.value = ''; cur.classList.add('d-none'); fileEl.value = '';
         status.innerHTML = '<span class="text-muted">นำสลิปออกแล้ว (กดบันทึกเพื่อยืนยัน)</span>';
       });
+    })();
+
+    // รับเงินรายรายการ (เฉพาะตอนแก้ไขคิว)
+    (function payments() {
+      if (!document.getElementById('payBlock')) return;
+      const bookingId = <?= (int) $editId ?>;
+      const KIND = { deposit: 'มัดจำ', balance: 'ส่วนที่เหลือ', refund: 'คืนเงิน' };
+      const METHOD = { transfer: 'โอน', cash: 'เงินสด', other: 'อื่นๆ' };
+      const baht = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+      const esc = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+      function render(data) {
+        const s = data.summary;
+        document.getElementById('paySummary').innerHTML = s.total === null
+          ? 'รับแล้ว <strong>' + baht(s.paid) + '</strong> บาท · ยังไม่ใส่ราคาคิวนี้'
+          : 'ยอดรวม ' + baht(s.total) + ' · รับแล้ว <strong>' + baht(s.paid) + '</strong> · คงเหลือ <strong>' + baht(s.balance) + '</strong> บาท';
+        document.getElementById('payRows').innerHTML = data.rows.map(r =>
+          '<div class="d-flex justify-content-between align-items-center border-top py-1">' +
+          '<span>' + esc(r.paid_at) + ' · ' + esc(KIND[r.kind]) + ' · ' + esc(METHOD[r.method]) + (r.note ? ' · ' + esc(r.note) : '') + '</span>' +
+          '<span>' + (r.kind === 'refund' ? '-' : '') + baht(r.amount) + ' บาท ' +
+          '<button type="button" class="btn btn-sm btn-light border text-danger" data-pay-del="' + Number(r.id) + '" aria-label="ลบรายการ"><i class="bi bi-x-lg"></i></button></span></div>'
+        ).join('');
+        document.querySelectorAll('[data-pay-del]').forEach(b => b.addEventListener('click', () => removePayment(b.dataset.payDel)));
+      }
+
+      const load = () => fetch(API_BASE + '/payments.php?booking_id=' + bookingId).then(r => r.json()).then(render);
+
+      function removePayment(id) {
+        if (!confirm('ลบรายการรับเงินนี้?')) return;
+        fetch(API_BASE + '/payments.php?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': CSRF } })
+          .then(r => r.json()).then(d => { if (d.error) showToast(d.error, 'danger'); else load(); });
+      }
+
+      document.getElementById('payAdd').addEventListener('click', () => {
+        const amountEl = document.getElementById('payAmount');
+        fetch(API_BASE + '/payments.php', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+          body: JSON.stringify({
+            booking_id: bookingId, kind: document.getElementById('payKind').value, amount: amountEl.value,
+            method: document.getElementById('payMethod').value, paid_at: document.getElementById('payDate').value,
+          }),
+        }).then(r => r.json()).then(d => {
+          if (d.error) { showToast(d.error, 'danger'); return; }
+          amountEl.value = '';
+          load();
+        });
+      });
+      load();
     })();
 
     // autocomplete ลูกค้าจากชื่อ/เบอร์ที่เคยจอง

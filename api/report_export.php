@@ -5,6 +5,7 @@
  * ใส่ BOM ให้ Excel เปิดภาษาไทยถูกต้อง
  */
 require dirname(__DIR__) . '/app/auth.php';
+require dirname(__DIR__) . '/app/booking_helpers.php';
 requireLogin();
 
 $start = $_GET['start'] ?? date('Y-m-01');
@@ -19,7 +20,7 @@ $pdo = require dirname(__DIR__) . '/app/db.php';
 $owner = ownerId();
 
 $sql = "
-    SELECT b.appointment_date, b.start_time, b.end_time, b.customer_name, b.customer_phone,
+    SELECT b.id, b.appointment_date, b.start_time, b.end_time, b.time_slot, b.time_exact, b.customer_name, b.customer_phone, b.social,
            b.num_people, b.price, b.deposit, b.travel_fee, b.payment_status, b.status, b.source,
            st.name AS staff_name,
            (SELECT GROUP_CONCAT(c.name SEPARATOR ', ') FROM booking_category_pivot p
@@ -28,14 +29,13 @@ $sql = "
     LEFT JOIN staff st ON st.id = b.staff_id
     WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ?
 ";
-$params = [$owner, $start, $end];
-$staff = $_GET['staff'] ?? '';
-if ($staff === 'none') { $sql .= " AND b.staff_id IS NULL"; }
-elseif ($staff !== '' && ctype_digit((string) $staff)) { $sql .= " AND b.staff_id = ?"; $params[] = (int) $staff; }
-$sql .= " ORDER BY b.appointment_date, b.start_time";
+[$staffSql, $staffArgs] = staffFilterSql($_GET['staff'] ?? '');
+$sql .= $staffSql . " ORDER BY b.appointment_date, b.start_time";
 
 $stmt = $pdo->prepare($sql);
-$stmt->execute($params);
+$stmt->execute(array_merge([$owner, $start, $end], $staffArgs));
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$staffMap = fetchBookingStaff($pdo, array_column($rows, 'id'));
 
 $statusMap  = ['new' => 'ใหม่', 'confirmed' => 'ยืนยันแล้ว', 'done' => 'เสร็จงาน', 'cancelled' => 'ยกเลิก'];
 $payMap     = ['unpaid' => 'ยังไม่จ่าย', 'deposit_paid' => 'จ่ายมัดจำ', 'paid' => 'จ่ายครบ'];
@@ -55,16 +55,23 @@ $csvSafe = static function ($v) {
 
 echo "\xEF\xBB\xBF"; // BOM
 $out = fopen('php://output', 'w');
-fputcsv($out, ['วันที่', 'เวลาเริ่ม', 'เวลาจบ', 'ลูกค้า', 'เบอร์โทร', 'ประเภทงาน', 'ช่าง', 'จำนวน', 'ราคา', 'มัดจำ', 'ค่าเดินทาง', 'การจ่าย', 'สถานะ', 'ที่มา']);
-foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+fputcsv($out, ['วันที่', 'เวลาเริ่ม', 'เวลาจบ', 'ช่วงเวลา', 'ลูกค้า', 'เบอร์โทร', 'โซเชียล', 'ประเภทงาน', 'ช่าง', 'ช่างเสริม', 'มัดจำจ่ายช่าง', 'จำนวน', 'ราคา', 'มัดจำ', 'ค่าเดินทาง', 'การจ่าย', 'สถานะ', 'ที่มา']);
+foreach ($rows as $r) {
+    $team = $staffMap[(int) $r['id']] ?? [];
+    $assists = array_column(array_filter($team, static fn($s) => $s['role'] !== 'main'), 'name');
+    $payout = array_sum(array_column($team, 'deposit_paid'));
     fputcsv($out, [
         $r['appointment_date'],
-        substr((string) $r['start_time'], 0, 5),
-        substr((string) $r['end_time'], 0, 5),
+        (int) $r['time_exact'] === 1 ? substr((string) $r['start_time'], 0, 5) : '',
+        (int) $r['time_exact'] === 1 ? substr((string) $r['end_time'], 0, 5) : '',
+        TIME_SLOTS[$r['time_slot'] ?? '']['label'] ?? '',
         $csvSafe($r['customer_name']),
         $csvSafe($r['customer_phone']),
+        $csvSafe($r['social'] ?? ''),
         $csvSafe($r['category_names'] ?? ''),
         $csvSafe($r['staff_name'] ?? 'ไม่ระบุ'),
+        $csvSafe(implode(', ', $assists)),
+        $payout > 0 ? $payout : '',
         (int) $r['num_people'],
         $r['price'] !== null ? (float) $r['price'] : '',
         (float) $r['deposit'],

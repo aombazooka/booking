@@ -109,6 +109,14 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         echo json_encode(['error' => 'ต้องการ id']);
         exit;
     }
+    // ประเภทที่มีคิวใช้แล้วห้ามลบจริง (คิวเก่า/รายงานจะหายประเภท) — ปิดใช้งานแทน
+    $used = $pdo->prepare("SELECT EXISTS (SELECT 1 FROM booking_category_pivot WHERE category_id = ?)");
+    $used->execute([$id]);
+    if ($used->fetchColumn()) {
+        $pdo->prepare("UPDATE booking_categories SET is_active = 0 WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
+        echo json_encode(['success' => true, 'deactivated' => true]);
+        exit;
+    }
     $pdo->prepare("DELETE FROM booking_categories WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;

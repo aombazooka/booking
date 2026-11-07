@@ -160,9 +160,11 @@ $last  = date('Y-m-t', strtotime($first));
 
 // คิวที่มีอยู่ในเดือนนั้น (ไม่นับยกเลิก) — ใช้ดูว่าวันฤกษ์ถูกจองไปแล้วหรือยังว่าง
 $bk = $pdo->prepare("
-    SELECT b.appointment_date, COUNT(*) cnt, COUNT(DISTINCT b.staff_id) staff_used,
+    SELECT b.appointment_date, COUNT(DISTINCT b.id) cnt, COUNT(DISTINCT bs.staff_id) staff_used,
            GROUP_CONCAT(DISTINCT st.name ORDER BY st.name SEPARATOR ', ') staff_names
-    FROM bookings b LEFT JOIN staff st ON st.id = b.staff_id
+    FROM bookings b
+    LEFT JOIN booking_staff bs ON bs.booking_id = b.id
+    LEFT JOIN staff st ON st.id = bs.staff_id
     WHERE b.user_id = ? AND b.appointment_date BETWEEN ? AND ? AND b.status <> 'cancelled'
     GROUP BY b.appointment_date");
 $bk->execute([$owner, $first, $last]);

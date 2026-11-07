@@ -21,6 +21,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . $projectBase . '/');
             exit;
         }
+        if ($action === 'reset_pw' && $id > 0) {
+            // เจ้าของร้านลืมรหัส: สร้างรหัสชั่วคราว แสดงครั้งเดียว ให้แอดมินส่งต่อ
+            $temp = bin2hex(random_bytes(6));
+            $upd = $pdo->prepare("UPDATE app_users SET password_hash = ? WHERE id = ? AND role <> 'admin'");
+            $upd->execute([password_hash($temp, PASSWORD_DEFAULT), $id]);
+            if ($upd->rowCount() > 0) {
+                $msg = 'รหัสผ่านชั่วคราว: ' . $temp . ' (แสดงครั้งนี้ครั้งเดียว ให้ร้านเปลี่ยนรหัสหลังเข้าสู่ระบบ)';
+            }
+        }
         $newStatus = ['approve' => 'active', 'suspend' => 'suspended', 'activate' => 'active'][$action] ?? '';
         // กันแก้สถานะตัวเอง
         if ($id > 0 && $id !== currentUserId() && $newStatus !== '') {
@@ -90,6 +99,7 @@ $statusLabel = ['pending' => '<span class="badge text-bg-warning">รออน�
                     <?php if ($u['status'] === 'active'): ?>
                       <button name="action" value="suspend" class="btn btn-sm btn-outline-danger">ระงับ</button>
                     <?php endif; ?>
+                    <button name="action" value="reset_pw" class="btn btn-sm btn-outline-secondary" onclick="return confirm('สร้างรหัสผ่านชั่วคราวให้ร้านนี้? รหัสเดิมจะใช้ไม่ได้ทันที')">รีเซ็ตรหัส</button>
                   </form>
                 <?php endif; ?>
               </td>

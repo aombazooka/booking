@@ -119,6 +119,14 @@ if ($method === 'DELETE' || ($method === 'POST' && ($_GET['action'] ?? '') === '
         echo json_encode(['error' => 'ต้องการ id']);
         exit;
     }
+    // บริการที่มีคิวใช้แล้วห้ามลบจริง (ประวัติคิวจะหาย) — ปิดใช้งานแทน
+    $used = $pdo->prepare("SELECT EXISTS (SELECT 1 FROM booking_service_pivot WHERE service_id = ?)");
+    $used->execute([$id]);
+    if ($used->fetchColumn()) {
+        $pdo->prepare("UPDATE booking_services SET is_active = 0 WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
+        echo json_encode(['success' => true, 'deactivated' => true]);
+        exit;
+    }
     $pdo->prepare("DELETE FROM booking_services WHERE id = ? AND user_id = ?")->execute([$id, $owner]);
     echo json_encode(['success' => true]);
     exit;

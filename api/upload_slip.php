@@ -6,6 +6,7 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 
+require dirname(__DIR__) . '/app/auth.php';
 require dirname(__DIR__) . '/app/booking_helpers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -57,6 +58,11 @@ if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $name)) {
     http_response_code(500);
     echo json_encode(['error' => 'บันทึกไฟล์ไม่สำเร็จ']);
     exit;
+}
+
+// จำไว้ใน session ให้แอดมินเปิดดูสลิปที่เพิ่งอัปโหลดได้ก่อนกดบันทึกคิว (ดู api/slip.php)
+if (isLoggedIn()) {
+    $_SESSION['my_slips'] = array_slice(array_merge($_SESSION['my_slips'] ?? [], [$name]), -50);
 }
 
 echo json_encode(['success' => true, 'file' => $name]);
